@@ -1,0 +1,241 @@
+---
+title: "Formulario"
+author: "Jorge García Acedo y Alejandro García Gómez"
+date: today
+format: 
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 17
+    number-sections: true
+server: shiny
+---
+
+A continuación se presenta una aplicación que permite a los usuarios ingresar datos de estudiantes y obtener predicciones sobre el riesgo de abandono académico utilizando el modelo de random forest simplificado desarrollado anteriormente.
+
+1. Las notas de los semestres van de 0 a 20.
+2. Las notas de acceso y estudios previos van de 0 a 200.
+
+```{r}
+
+grados <- data.frame(id = c(
+  33, 171, 8014, 9003,
+  9070, 9085, 9119, 9130,
+  9147, 9238, 9254, 9500,
+  9556, 9670, 9773,
+  9853, 9991), nombre = c("Biofuel Production Technologies", "Animation and Multimedia Design", "Social Service (evening attendance)", "Agronomy", "Communication Design", "Veterinary Nursing", "Informatics Engineering", "Equinculture",  "Management", "Social Service", "Tourism", "Nursing", "Oral Hygiene", "Advertising and Marketing Management", "Journalism and Communication", "Basic Education", "Management (evening attendance)"))
+
+
+fluidPage(
+
+  titlePanel("Formulario de predicción"),
+
+  # 1º semestre
+  fluidRow(
+    style = "display: flex; align-items: flex-end; margin-bottom: 15px;", # alinea columnas abajo
+    column(4,
+      numericInput(
+        "Curricular.units.1st.sem..approved.",
+        "Asignaturas aprobadas 1º semestre",
+        value = 0, min = 0, max = 20, step = 1
+      )
+    ),
+    column(4,
+      numericInput(
+        "Curricular.units.1st.sem..grade.",
+        "Nota media 1º semestre",
+        value = 0, min = 0, max = 20
+      )
+    ),
+    column(4,
+      numericInput(
+        "Curricular.units.1st.sem..evaluations.",
+        "Evaluaciones 1º semestre",
+        value = 0, min = 0, max = 30, step = 1
+      )
+    )
+  ),
+
+  # 2º semestre
+  fluidRow(
+    style = "display: flex; align-items: flex-end; margin-bottom: 15px;",
+    column(4,
+      numericInput(
+        "Curricular.units.2nd.sem..approved.",
+        "Asignaturas aprobadas 2º semestre",
+        value = 0, min = 0, max = 20, step = 1
+      )
+    ),
+    column(4,
+      numericInput(
+        "Curricular.units.2nd.sem..grade.",
+        "Nota media 2º semestre",
+        value = 0, min = 0, max = 10
+      )
+    ),
+    column(4,
+      numericInput(
+        "Curricular.units.2nd.sem..evaluations.",
+        "Evaluaciones 2º semestre",
+        value = 0, min = 0, max = 30, step = 1
+      )
+    )
+  ),
+
+  # Otros inputs
+  fluidRow(
+    style = "display: flex; align-items: flex-end; margin-bottom: 15px;",
+    
+    column(4,
+      numericInput(
+        "Age.at.enrollment",
+        "Edad al matricularse",
+        value = 18, min = 15, max = 100, step = 1
+      )
+    ),
+    
+        column(4,
+      numericInput(
+        "Admission.grade",
+        "Nota de acceso a la universidad",
+        value = 0, min = 0, max = 200
+      )
+    ),
+    
+    column(4,
+      numericInput(
+        "Previous.qualification..grade.",
+        "Nota de estudios previos",
+        value = 0, min = 0, max = 200
+      )
+    )
+  ),
+
+  fluidRow(
+    style = "display: flex; align-items: flex-end; margin-bottom: 15px;",
+    column(4,
+      checkboxInput(
+        "Tuition.fees.up.to.date",
+        "¿Tasas pagadas al día?",
+        value = TRUE
+      )
+    ),
+    
+    column(4,
+      selectInput(
+        "Course",
+        "Grado",
+        choices = grados$nombre
+      )
+    ),
+    column(4,
+      actionButton(
+        "predecir",
+        "Predecir abandono",
+        class = "btn-primary",
+        style = "width:100%;"
+      )
+    )
+  ),
+
+  br(),
+  uiOutput("resultado_prediccion")
+)
+
+
+```
+
+```{r context="server"}
+library(randomForest)
+# Cargamos la info necesaria
+rf_modelo_simplificado <- readRDS("rf_modelo_simplificado.rds")
+grados <- data.frame(id = c(
+  33, 171, 8014, 9003,
+  9070, 9085, 9119, 9130,
+  9147, 9238, 9254, 9500,
+  9556, 9670, 9773,
+  9853, 9991), nombre = c("Biofuel Production Technologies", "Animation and Multimedia Design", "Social Service (evening attendance)", "Agronomy", "Communication Design", "Veterinary Nursing", "Informatics Engineering", "Equinculture",  "Management", "Social Service", "Tourism", "Nursing", "Oral Hygiene", "Advertising and Marketing Management", "Journalism and Communication", "Basic Education", "Management (evening attendance)"))
+
+
+
+observeEvent(input$predecir, {
+  # Crear un data frame con los datos de entrada
+  nuevos_datos <- data.frame(
+    Curricular.units.2nd.sem..approved. = input$Curricular.units.2nd.sem..approved.,
+
+    Curricular.units.2nd.sem..grade. = input$Curricular.units.2nd.sem..grade.,
+
+    Curricular.units.1st.sem..grade. = input$Curricular.units.1st.sem..grade.,
+
+    Curricular.units.1st.sem..approved. = input$Curricular.units.1st.sem..approved.,
+
+    Curricular.units.2nd.sem..evaluations. = input$Curricular.units.2nd.sem..evaluations.,
+
+    Tuition.fees.up.to.date = as.numeric(input$Tuition.fees.up.to.date),
+
+    Admission.grade = input$Admission.grade,
+
+    Curricular.units.1st.sem..evaluations. = input$Curricular.units.1st.sem..evaluations.,
+
+    Previous.qualification..grade. = input$Previous.qualification..grade.,
+
+    Age.at.enrollment = input$Age.at.enrollment,
+
+
+    Course = grados[grados$nombre==input$Course,"id"]
+  )
+
+ probs <- predict(
+    rf_modelo_simplificado,
+    newdata = nuevos_datos,
+    type = "prob"
+  )
+
+  # Clase con mayor probabilidad
+  clase <- colnames(probs)[which.max(probs)]
+  prob_clase <- max(probs)
+
+  # Probabilidad de Dropout
+  prob_dropout <- probs[,"Dropout"]
+
+  # Colores por clase
+  colores <- c(
+    "Dropout" = "red",
+    "Enrolled" = "orange",
+    "Graduate" = "green"
+  )
+
+  output$resultado_prediccion <- renderUI({
+
+    tagList(
+      # Rectángulo con clase principal
+      div(
+        style = paste0(
+          "background-color:", colores[clase], ";",
+          "color:white;",
+          "padding: 20px;",
+          "border-radius:15px;",
+          "text-align:center;",
+          "font-size:32px;",
+          "font-weight:bold;"
+        ),
+        clase
+      ,
+      
+      # Subtítulo con probabilidad de esa clase (solo si NO es Dropout)
+      if (clase != "Dropout") {
+        div(
+          style = "text-align:center; font-size:18px; margin-top:5px;",
+          paste0("Probabilidad: ", round(prob_clase*100,2), " %")
+        )
+      },
+      
+      # Probabilidad de Dropout siempre visible
+      div(
+        style = "text-align:center; font-size:16px; margin-top:10px;",
+        paste0("Probabilidad de Dropout: ", round(prob_dropout*100,2), " %")
+      )
+    ))
+})
+})
+```

@@ -1,0 +1,997 @@
+---
+title: "Análisis del abandono estudiantil"
+subtitle: "Grado en Matemáticas | Minería de datos"
+author: "Jorge García Acedo y Alejandro García Gómez"
+date: today
+format: 
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 17
+    number-sections: true
+---
+
+
+```{css}
+#| echo: false
+p {
+  text-align: justify
+}
+```
+
+```{r echo=FALSE
+rm(list = ls())
+```
+
+# Introducción y carga de datos:
+
+Este proyecto aborda el análisis de datos académicos de estudiantes universitarios en Portugal con el objetivo de predecir su resultado académico **finalización de los estudios, titulación tardía o abandono** mediante técnicas de análisis de datos y modelización predictiva,implementadas en R, a partir de un conjunto de datos real procedente del repositorio [UC Irvine Machine Learning Repository](https://archive.ics.uci.edu/dataset/697/predict+students+dropout+and+academic+success). Para ello emplearemos las siguientes librerías:
+
+```{r message=FALSE, warning=FALSE , output=FALSE}
+#Cargamos las librerías necesarias
+library(ggplot2)
+library(ggpubr)
+library(corrplot)
+library(factoextra)
+library(dplyr)
+library(cluster)
+library(NbClust)
+library(ggrepel)
+library(class)     
+library(rpart)    
+library(rpart.plot)
+library(randomForest)
+```
+
+```{r echo=FALSE}
+#Creamos un tema para ggplot2
+theme_baseR <- theme(
+  panel.background = element_rect(fill = "white", color = "white"),
+  plot.background = element_rect(fill = "white", color = NA),
+  panel.grid = element_blank(),
+  axis.line = element_line(color = "black"),
+  axis.ticks = element_line(color = "black"),
+  axis.text = element_text(color = "black", size = 12),
+  axis.title = element_text(color = "black", size = 13, face = "bold"),
+  plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "black")
+)
+theme_set(theme_baseR)
+```
+
+```{r echo=FALSE}
+evaluar_clasificador_binario <- function(pred,
+                                         real,
+                                         pos_pred,
+                                         neg_pred,
+                                         pos_real,
+                                         neg_real) {
+  # Comprobaciones básicas
+  if (length(pred) != length(real)) {
+    stop("Los vectores de predicción y reales deben tener la misma longitud.")
+  }
+  
+  # Comprobación de etiquetas válidas
+  if (!all(pred %in% c(pos_pred, neg_pred))) {
+    stop("Las predicciones contienen valores no definidos como positivos o negativos.")
+  }
+  
+  if (!all(real %in% c(pos_real, neg_real))) {
+    stop("Los valores reales contienen valores no definidos como positivos o negativos.")
+  }
+  
+  # Unificamos etiquetas
+  pred_bin <- ifelse(pred %in% pos_pred, "Positivo", "Negativo")
+  real_bin <- ifelse(real %in% pos_real, "Positivo", "Negativo")
+  
+  # Convertimos a factores con orden fijo
+  pred_bin <- factor(pred_bin, levels = c("Positivo", "Negativo"))
+  real_bin <- factor(real_bin, levels = c("Positivo", "Negativo"))
+  
+  # Matriz de confusión
+  mc <- table(
+    Real = real_bin,
+    Predicción = pred_bin
+  )
+  
+  # Extraemos componentes
+  TP <- mc["Positivo", "Positivo"]
+  TN <- mc["Negativo", "Negativo"]
+  FP <- mc["Negativo", "Positivo"]
+  FN <- mc["Positivo", "Negativo"]
+  
+  # Métricas
+  precision   <- TP / (TP + FP)
+  recall      <- TP / (TP + FN)
+  f1_score    <- 2 * precision * recall / (precision + recall)
+  accuracy    <- (TP + TN) / sum(mc)
+  error       <- 1 - accuracy
+  specificity <- TN / (TN + FP)
+  npv         <- TN / (TN + FN)
+  
+  # Matriz con márgenes
+  mc_margenes <- addmargins(mc)
+  
+  # Salida
+  return(list(
+    matriz_confusion = mc_margenes,
+    metricas = c(
+      precision   = precision,
+      recall      = recall,
+      f1_score    = f1_score,
+      accuracy    = accuracy,
+      error       = error,
+      specificity = specificity,
+      npv         = npv
+    )
+  ))
+}
+
+```
+
+
+```{r}
+#Cargamos los datos
+data <- read.csv("data.csv", sep=";")
+dim(data)
+```
+
+Observamos que hay `r dim(data)[1]` registros y `r dim(data)[2]` variables. Las variables son las siguientes:
+
+```{r}
+colnames(data)
+```
+
+## Variables del dataset
+
+A continuación se describen las variables incluidas en el conjunto de datos de estudiantes universitarios:
+
+| Nº | Variable | Descripción |
+|----|----------|-------------|
+| 1 | **Marital.status** | Estado civil del estudiante (soltero, casado, divorciado, etc.). |
+| 2 | **Application.mode** | Modo o vía de acceso a la universidad (por ejemplo, examen nacional, transferencia, etc.). |
+| 3 | **Application.order** | Orden de preferencia de la carrera elegida en la solicitud de ingreso. |
+| 4 | **Course** | Carrera o titulación en la que el estudiante está matriculado. |
+| 5 | **Daytime.evening.attendance.** | Tipo de asistencia: si el alumno cursa estudios diurnos o vespertinos. |
+| 6 | **Previous.qualification** | Nivel educativo más alto alcanzado antes de ingresar (por ejemplo, secundaria, formación profesional, etc.). |
+| 7 | **Previous.qualification..grade.** | Calificación obtenida en la titulación previa. |
+| 8 | **Nacionality** | Nacionalidad del estudiante. |
+| 9 | **Mother.s.qualification** | Nivel educativo alcanzado por la madre. |
+| 10 | **Father.s.qualification** | Nivel educativo alcanzado por el padre. |
+| 11 | **Mother.s.occupation** | Ocupación principal de la madre. |
+| 12 | **Father.s.occupation** | Ocupación principal del padre. |
+| 13 | **Admission.grade** | Nota de admisión del estudiante al ingresar a la universidad. |
+| 14 | **Displaced** | Indica si el estudiante vive fuera de su residencia habitual para estudiar. |
+| 15 | **Educational.special.needs** | Indica si el estudiante presenta necesidades educativas especiales. |
+| 16 | **Debtor** | Indica si el estudiante tiene pagos pendientes con la institución. |
+| 17 | **Tuition.fees.up.to.date** | Indica si el estudiante tiene las tasas de matrícula al día. |
+| 18 | **Gender** | Género del estudiante. |
+| 19 | **Scholarship.holder** | Indica si el estudiante es beneficiario de una beca. |
+| 20 | **Age.at.enrollment** | Edad del estudiante en el momento de la matrícula. |
+| 21 | **International** | Indica si el estudiante es internacional (extranjero). |
+| 22 | **Curricular.units.1st.sem..credited.** | Número de asignaturas reconocidas (convalidadas) en el primer semestre. |
+| 23 | **Curricular.units.1st.sem..enrolled.** | Número de asignaturas matriculadas en el primer semestre. |
+| 24 | **Curricular.units.1st.sem..evaluations.** | Número de evaluaciones realizadas en el primer semestre. |
+| 25 | **Curricular.units.1st.sem..approved.** | Número de asignaturas aprobadas en el primer semestre. |
+| 26 | **Curricular.units.1st.sem..grade.** | Nota media obtenida en el primer semestre. |
+| 27 | **Curricular.units.1st.sem..without.evaluations.** | Asignaturas del primer semestre sin evaluación. |
+| 28 | **Curricular.units.2nd.sem..credited.** | Número de asignaturas reconocidas (convalidadas) en el segundo semestre. |
+| 29 | **Curricular.units.2nd.sem..enrolled.** | Número de asignaturas matriculadas en el segundo semestre. |
+| 30 | **Curricular.units.2nd.sem..evaluations.** | Número de evaluaciones realizadas en el segundo semestre. |
+| 31 | **Curricular.units.2nd.sem..approved.** | Número de asignaturas aprobadas en el segundo semestre. |
+| 32 | **Curricular.units.2nd.sem..grade.** | Nota media obtenida en el segundo semestre. |
+| 33 | **Curricular.units.2nd.sem..without.evaluations.** | Asignaturas del segundo semestre sin evaluación. |
+| 34 | **Unemployment.rate** | Tasa de desempleo del país o región durante el periodo académico. |
+| 35 | **Inflation.rate** | Tasa de inflación correspondiente al periodo académico. |
+| 36 | **GDP** | Producto Interior Bruto (PIB) del país o región. |
+| 37 | **Target** | Variable objetivo (por ejemplo, indica si el estudiante completó el curso, abandonó, o tuvo éxito académico). |
+
+Todas las variables vienen codificadas con valores numéricos que se pueden consultar en la fuente de los datos. Los datos no tienen valores faltantes tal y como se indicaba. 
+
+## División del conjunto de datos
+
+Antes de comenzar con el análisis exploratorio, procedemos a separar los datos en en 3 grupos: El 50% los usaremos para entrenar el modelo, el 25% para hacer pruebas y el 25% restante para validarlo al final.
+
+```{r}
+set.seed(1889) # Para reproducibilidad
+# Crear un vector de índices para dividir los datos
+indices <- sample(1:3, size = nrow(data), replace = TRUE, prob = c(0.5, 0.25, 0.25))
+# Dividir los datos en conjuntos de entrenamiento, prueba y validación
+test_data <- data[indices == 2, ]
+validation_data <- data[indices == 3, ]
+data <- data[indices == 1, ]
+
+```
+
+## Análisis exploratorio de datos (EDA)
+
+A continuación se realiza un análisis exploratorio de datos (EDA) para comprender mejor la distribución y características de las variables en el conjunto de datos.
+
+```{r}
+#Resumen de las edades de los estudiantes
+edades <- summary(data$Age.at.enrollment)
+edades
+#Histograma de las edades
+hist(data$Age.at.enrollment, main="Histograma de edades", xlab="Edad", col="lightblue", border="black", breaks=20)
+```
+La mayoría de los estudiantes tienen entre `r edades["1st Qu."]` y `r edades["3rd Qu."]` años al comenzar los estudios, con una mediana de `r edades["Median"]` años.
+```{r}
+#| paged-print: true
+#Tabla de frecuencias de las nacionalidades
+data$Nacionality <- as.character(factor(data$Nacionality,levels = c(1,2,6,11,13,14,17,21,22,24,25,26,32,41,62,100,101,103,105,108,109),labels = c("PT","DE","ES","IT","NL","EN","LT","AO","CV","GN","MZ","ST","TR","BR","RO","MD","MX","UA","RU","CU","CO")))
+f_nacionalidades <- sort(table(data$Nacionality),decreasing = TRUE)
+f_nacionalidades <- round(prop.table(f_nacionalidades)*100,2)
+f_nacionalidades
+```
+La nacionalidad predominante es portuguesa (*PT*) con un `r f_nacionalidades["PT"]`% de los estudiantes, seguida por Brasil (*BR*) con un `r f_nacionalidades["BR"]`%. Dado que la inmensa mayoría de los estudiantes son portugueses, inicialmente no tendremos en cuenta esta variable. En su lugar usaremos una binaria que indica si es internacional o no.
+```{r}
+#Proporción de género
+data$Gender_char <- as.character(factor(data$Gender,levels = c(1,0),labels = c("Hombre","Mujer")))
+f_genero <- round(prop.table(table(data$Gender_char))*100,2)
+f_genero
+#Contingencia entre género y variable objetivo
+cont_genero <- table(data$Gender_char,data$Target)
+cont_genero <- round(prop.table(cont_genero,1)*100,2)
+cont_genero <- addmargins(cont_genero)[1:2,]
+cont_genero
+#Representamos estos datos en un grafico de barras acumulado
+barplot(t(cont_genero[,1:3]), beside=FALSE, col=c("lightcoral","lightblue","lightgreen"), legend = colnames(cont_genero[,1:3]), main="Distribución de la variable objetivo por género", xlab="Género", ylab="Porcentaje")
+```
+En cuanto al género, observamos una mayor presencia de mujeres, representando el `r f_genero['Mujer']`% de los datos. Esto es mayor comparado con los datos publicados por la [*OCDE*](https://www.oecd.org/content/dam/oecd/en/publications/reports/2024/09/education-at-a-glance-2024-country-notes_532eb29d/portugal_55fb2ce4/a6ce9dbc-en.pdf) que indican que este porcentaje es el 54%. Esta diferencia se puede explicar por los grados elegidos para nuestros datos que pueden no ser representativos. También podemos observar que más hombres dejan los estudios (`r cont_genero['Hombre','Dropout']`%) respecto a las mujeres (`r cont_genero['Mujer','Dropout']`%).
+```{r}
+#| paged-print: true
+#Resumen de las notas de entrada
+summary(data$Admission.grade)
+#Grafico de densidad de las notas de entrada
+ggplot(data, aes(x = Admission.grade)) +
+    geom_density(fill = "blue", alpha = 0.5) +
+    geom_vline(xintercept = seq(ceiling(min(data$Admission.grade)/10)*10, max(data$Admission.grade), by = 10), linetype = "dashed") + labs(title = "Notas de Admisión", x = "Nota de Admisión", y = "Densidad")
+#Hacemos un histograma con las calificaciones en intervalos de 10
+ggplot(data, aes(x = Admission.grade)) +
+    geom_histogram(binwidth = 10, fill = "lightblue", color = "black", alpha = 0.7) +
+    labs(title = "Histograma de Notas de Admisión", x = "Nota de Admisión", y = "Frecuencia")
+
+#Hacemos el grafico de correlación entre la nota de admisión y la nota obtenida en el primer semestre
+ggplot(data[data$Curricular.units.1st.sem..grade.>0,],aes(x=Admission.grade,y=Curricular.units.1st.sem..grade.))+geom_point()+geom_smooth(method = lm,color="red",se = TRUE)+stat_cor(method = "pearson",label.x = 100,label.y = 20)
+```
+
+Respecto a las notas de admisión, podemos ver que las notas tienden a concentrarse en los múltiplos de 10, lo que sugiere una posible influencia de los sistemas de calificación. No existe una fuerte correlación entre la nota de admisión y los resultados obtenidos en el primer semestre, con un coeficiente r=0.33.
+
+## Matrices de distancias para variables categóricas
+A continuación se muestran las matrices de distancias diseñadas para las variables categóricas más relevantes del conjunto de datos. Después, realizamos un escalamiento multidimensional, para obtener dos variables numéricas por cada variable categórica de modo que la distancia euclidea en el plano entre dos posibles valores de la variable categórica se corresponde con la distancia establecida en la matriz. Esto nos permite generar un nuevo dataframe donde todas las variables son numericas.
+
+### Estado civil
+
+```{r}
+# Definir los nombres de los estados civiles
+estados <- data.frame(id=c(1, 2, 3, 4, 5, 6), nombre=c(
+  "Soltero",
+  "Casado",
+  "Viudo",
+  "Divorciado",
+  "Pareja",
+  "Separado"
+))
+
+matriz_datos_estados <- c(
+  0, 3, 4, 2, 1, 2,  
+  3, 0, 4, 4, 1, 3,  
+  4, 4, 0, 3, 4, 4,  
+  2, 4, 3, 0, 3, 1,  
+  1, 1, 4, 3, 0, 3,  
+  2, 3, 4, 1, 3, 0   
+)
+
+matriz_distancias_estados <- matrix(
+  matriz_datos_estados,
+  nrow = 6,
+  byrow = TRUE,
+  dimnames = list(estados$id, estados$id)
+)
+
+# Escalamiento multidimensional
+coordenadas_estados <- cmdscale(matriz_distancias_estados, k = 2)
+colnames(coordenadas_estados) <- c("Estado1", "Estado2")
+rownames(coordenadas_estados) <- estados$id
+estados_numeric <- coordenadas_estados[data$Marital.status, ]
+colnames(estados_numeric) <- c("Estado1","Estado2")
+
+
+# Represetamos en el plano las coordenadas de los estados civiles con sus etiquetas
+ggplot(coordenadas_estados, aes(x = Estado1, y = Estado2)) +
+  geom_point() +
+  geom_text_repel(aes(label = estados$nombre), size = 5) +
+  xlab("Dimensión 1") +
+  ylab("Dimensión 2") +
+  ggtitle("Escalamiento Multidimensional de Estados Civiles") +
+  xlim(-3, 3) +
+  ylim(-3, 3)
+
+```
+
+### Grados
+
+El criterio general utilizado para asignar las distancias entre los grados fue la similitud en el campo de estudio principal y la orientación profesional/académica. Se asignó una distancia de 1 (máxima similitud) a aquellos grados que, o bien son idénticos (salvo por la modalidad de asistencia), o pertenecen a la misma área (ej. dos ingenierías, dos grados de salud, dos diseños visuales). Se asignó distancias mayores (hasta 4) a medida que los grados provienen de campos completamente dispares (ej. Salud versus Ingeniería, o Agricultura versus Animación). 
+
+```{r warning=FALSE}
+# Definir los nombres de los grados con su ID
+grados <- data.frame(id = c(
+  33, 171, 8014, 9003,
+  9070, 9085, 9119, 9130,
+  9147, 9238, 9254, 9500,
+  9556, 9670, 9773,
+  9853, 9991), nombre = c("Biofuel Production Technologies", "Animation and Multimedia Design", "Social Service (evening attendance)", "Agronomy", "Communication Design", "Veterinary Nursing", "Informatics Engineering", "Equinculture",  "Management", "Social Service", "Tourism", "Nursing", "Oral Hygiene", "Advertising and Marketing Management", "Journalism and Communication", "Basic Education", "Management (evening attendance)"))
+
+# Definir la matriz de distancias entre los grados
+
+
+matriz_datos_grados <- c(
+  0, 4, 3, 2, 4, 3, 1, 2, 3, 3, 3, 4, 4, 3, 4, 4, 3, 
+  4, 0, 4, 4, 1, 4, 3, 4, 3, 4, 3, 4, 4, 2, 3, 4, 3, 
+  3, 4, 1, 3, 4, 3, 4, 3, 2, 1, 2, 2, 3, 3, 3, 2, 2, 
+  2, 4, 3, 0, 4, 2, 3, 1, 3, 3, 3, 3, 4, 3, 4, 4, 3, 
+  4, 1, 4, 4, 0, 4, 3, 4, 3, 4, 3, 4, 4, 2, 3, 4, 3, 
+  3, 4, 3, 2, 4, 0, 4, 1, 3, 3, 3, 1, 2, 4, 4, 4, 3, 
+  1, 3, 4, 3, 3, 4, 0, 3, 3, 4, 3, 4, 4, 3, 3, 4, 3, 
+  2, 4, 3, 1, 4, 1, 3, 0, 3, 3, 3, 3, 4, 3, 4, 4, 3, 
+  3, 3, 2, 3, 3, 3, 3, 3, 1, 2, 1, 3, 4, 1, 3, 3, 1, 
+  3, 4, 1, 3, 4, 3, 4, 3, 2, 0, 2, 2, 3, 3, 3, 2, 2, 
+  3, 3, 2, 3, 3, 3, 3, 3, 1, 2, 0, 3, 4, 1, 3, 3, 1, 
+  4, 4, 2, 3, 4, 1, 4, 3, 3, 2, 3, 0, 1, 4, 4, 3, 3, 
+  4, 4, 3, 4, 4, 2, 4, 4, 4, 3, 4, 1, 0, 4, 4, 4, 4, 
+  3, 2, 3, 3, 2, 4, 3, 3, 1, 3, 1, 4, 4, 0, 1, 3, 1, 
+  4, 3, 3, 4, 3, 4, 3, 4, 3, 3, 3, 4, 4, 1, 0, 2, 3, 
+  4, 4, 2, 4, 4, 4, 4, 4, 3, 2, 3, 3, 4, 3, 2, 0, 3, 
+  3, 3, 2, 3, 3, 3, 3, 3, 1, 2, 1, 3, 4, 1, 3, 3, 0  
+)
+
+# Crear la matriz en R
+matriz_distancias_grados <- matrix(
+  matriz_datos_grados,
+  nrow = 17,
+  byrow = TRUE,
+  dimnames = list(grados$id, grados$id)
+)
+
+# Escalamiento multidimensional
+coordenadas_grados <- cmdscale(matriz_distancias_grados, k = 2)
+colnames(coordenadas_grados) <- c("Grados1", "Grados2")
+rownames(coordenadas_grados) <- grados$id
+grados_numeric <- coordenadas_grados[as.factor(data$Course), ]
+colnames(grados_numeric)<-c("Grados1","Grados2")
+
+# Represetamos en el plano las coordenadas de los grados con sus etiquetas
+ggplot(coordenadas_grados, aes(x = Grados1, y = Grados2)) +
+  geom_point() +
+  geom_text_repel(aes(label = grados$nombre), size = 5) +
+  xlab("Dimensión 1") +
+  ylab("Dimensión 2") +
+  ggtitle("Escalamiento Multidimensional de Grados") +
+  xlim(-2, 2) +
+  ylim(-2, 2)
+
+```
+
+### Cualificacion previa
+
+La matriz de distancias para el análisis se generó basándose en la asignación de cada calificación a un **Nivel Educativo ID** (0 a 8 para niveles válidos).
+
+El criterio de distancia es proporcional a la diferencia absoluta entre sus IDs de Nivel, pero se encuentra **limitada a un máximo de 5**.
+
+$$D_{ij} = \min(|\text{ID}_i - \text{ID}_j|, 7)$$
+  
+
+| Código(s) | Calificación (Resumen) | Grado de Educación Aprox. | Nivel Educativo ID |
+| :---: | :--- | :--- | :---: |
+| **35, 36** | No Lee/Escribe | Analfabeto/Preescolar | **0** |
+| **37** | Básica 1er Ciclo (4º/5º) | Primaria Incompleta | **1** |
+| **11, 26, 38, 30, 29** | Secundaria Baja Incompleta (7º-9º Incomp.) | E.S.O. Incompleta | **2** |
+| **19, 10, 12, 14, 27, 9, 15** | Secundaria Media Incompleta (10º-12º Incomp.) | Bachillerato Incompleto | **3** |
+| **1, 18, 22, 13, 20, 25** | Secundaria Completa (12º Año, Cursos Técnicos) | Bachillerato/Secundaria Completa | **4** |
+| **42, 39, 31, 33** | Superior Técnica/Post-Secundaria | Formación Profesional Superior/Técnico | **5** |
+| **2, 3, 40, 41** | Superior (Grado, Licenciatura, 1er Ciclo) | Grado Universitario | **6** |
+| **4, 43** | Superior (Máster, 2º Ciclo) | Posgrado (Máster) | **7** |
+| **5, 44** | Superior (Doctorado, 3er Ciclo) | Posgrado (Doctorado) | **8** |
+| **6, 34** | Frecuencia Superior, Desconocido | Nivel Especial o Indefinido | **9 (Especial)** |
+
+Para el escalado multidimensional, elegiremos tres dimensiones (k=3) para capturar mejor las diferencias entre las cualificaciones.
+
+```{r}
+# Procesar el string para crear un data frame
+Cualif_raw = 
+  "1 - Secondary Education - 12th Year of Schooling or Eq. 
+  2 - Higher Education - Bachelor's Degree 
+  3 - Higher Education - Degree 
+  4 - Higher Education - Master's 
+  5 - Higher Education - Doctorate 
+  6 - Frequency of Higher Education 
+  9 - 12th Year of Schooling - Not Completed 
+  10 - 11th Year of Schooling - Not Completed 
+  11 - 7th Year (Old) 
+  12 - Other - 11th Year of Schooling 
+  13 - 2nd year complementary high school course 
+  14 - 10th Year of Schooling 
+  15 - 10th year of schooling - not completed 
+  18 - General commerce course 
+  19 - Basic Education 3rd Cycle (9th/10th/11th Year) or Equiv. 
+  20 - Complementary High School Course 
+  22 - Technical-professional course 
+  25 - Complementary High School Course - not concluded 
+  26 - 7th year of schooling 
+  27 - 2nd cycle of the general high school course 
+  29 - 9th Year of Schooling - Not Completed 
+  30 - 8th year of schooling 
+  31 - General Course of Administration and Commerce 
+  33 - Supplementary Accounting and Administration 
+  34 - Unknown 
+  35 - Can't read or write 
+  36 - Can read without having a 4th year of schooling 
+  37 - Basic education 1st cycle (4th/5th year) or equiv. 
+  38 - Basic Education 2nd Cycle (6th/7th/8th Year) or Equiv. 
+  39 - Technological specialization course 
+  40 - Higher education - degree (1st cycle) 
+  41 - Specialized higher studies course 
+  42 - Professional higher technical course 
+  43 - Higher Education - Master (2nd cycle) 
+  44 - Higher Education - Doctorate (3rd cycle)"
+
+cualif_lines <- unlist(strsplit(Cualif_raw, "\n"))
+cualif_lines <- sub(" - ","|",cualif_lines)
+cualif_lines <- strsplit(cualif_lines, "|",fixed=TRUE)
+cualificaciones <- data.frame(t(data.frame(cualif_lines)))
+colnames(cualificaciones) <- c("ID", "Cualificación")
+rownames(cualificaciones) <- NULL
+cualificaciones$ID <- as.numeric(trimws(cualificaciones$ID))
+# Asignar niveles educativos a cada código de cualificación
+cualificaciones$Nivel <- c(4,6,6,7,8,9,3,3,2,3,4,3,3,4,3,4,4,4,2,3,2,2,5,5,9,0,0,1,2,5,6,6,5,7,8)
+
+# Inicializar la matriz de distancias
+matriz_distancias_cualif <- matrix(0, nrow = length(cualificaciones$ID) , ncol = length(cualificaciones$ID), dimnames = list(cualificaciones$ID, cualificaciones$ID))
+
+for (i in c(1:length(cualificaciones$ID))) {
+  for (j in c(1:length(cualificaciones$ID))) {
+    distancia <- abs(cualificaciones$Nivel[i] - cualificaciones$Nivel[j])
+    matriz_distancias_cualif[i, j] <- min(distancia, 7)
+  }
+}
+# Escalamiento multidimensional con k=3
+coordenadas_cualif <- cmdscale(matriz_distancias_cualif, k = 3)
+rownames(coordenadas_cualif)<- cualificaciones$ID
+
+# Asignar las nuevas variables numéricas a las cualificaciones previas de estudiantes y padres
+cualif_estudiante_numeric <- coordenadas_cualif[as.factor(data$Previous.qualification), ]
+colnames(cualif_estudiante_numeric)<-c("CualifE1","CualifE2","CualifE3")
+
+cualif_padre_numeric <- coordenadas_cualif[as.factor(data$Father.s.qualification), ]
+colnames(cualif_padre_numeric)<-c("CualifP1","CualifP2","CualifP3")
+
+cualif_madre_numeric <- coordenadas_cualif[as.factor(data$Mother.s.qualification), ]
+colnames(cualif_madre_numeric)<-c("CualifM1","CualifM2","CualifM3")
+
+
+```
+
+### Ocupación de los padres y previa de los estudiantes
+
+La matriz de distancias se genera asignando a cada ocupación un **Nivel Ocupacional** de 1 a 9, basado en la complejidad y cualificación requerida. Las ocupaciones especiales (0, 10, 90, 99) son excluidas del cálculo de distancia.
+
+El criterio de distancia es la diferencia absoluta entre sus OcupIDs, limitada a un máximo de **5**.
+
+$$D_{ij} = \min(|\text{OcupID}_i - \text{OcupID}_j|, 5)$$
+
+
+Esta tabla resume la clasificación jerárquica utilizada para establecer los Niveless:
+
+| Código(s) | Ocupación (Resumen) | Nivel de Complejidad | Nivel |
+| :---: | :--- | :--- | :---: |
+| **1, 112, 114** | Representantes del Poder Legislativo y Ejecutivo, Directores, Gerentes y Ejecutivos | Alta Dirección y Gestión | **1** |
+| **2, 121, 122, 123, 124, 125** | Especialistas en Actividades Intelectuales y Científicas | Profesiones Científicas y Académicas | **2** |
+| **3, 131, 132, 134, 135** | Técnicos y Profesionales de Nivel Intermedio | Nivel Técnico Especializado | **3** |
+| **4, 141, 143, 144** | Personal Administrativo (Oficina, Secretarías, Contabilidad) | Soporte Administrativo | **4** |
+| **5, 151, 152, 153, 154, 195** | Servicios Personales, Vendedores, Protección y Seguridad | Servicios y Ventas (No cualificado a intermedio) | **5** |
+| **6, 161, 163, 192** | Agricultores y Trabajadores Calificados en Agricultura, Pesca y Silvicultura | Trabajo Primario Calificado | **6** |
+| **7, 171, 172, 173, 174, 175** | Trabajadores Calificados en Industria, Construcción y Artesanía | Trabajo Industrial y Construcción Calificado | **7** |
+| **8, 181, 182, 183** | Operadores de Instalaciones y Máquinas y Montadores | Operadores y Conductores | **8** |
+| **9, 191, 193, 194** | Trabajadores No Cualificados (Limpieza, Ayudantes, etc.) | Nivel Básico No Calificado | **9** |
+| **0** | Estudiante | Sin Clasificación Laboral | **20 (Especial)** |
+| **10, 101, 102, 103** | Profesiones de las Fuerzas Armadas | Ocupación Única/Militar | **30 (Especial)** |
+| **90, 99** | Otra Situación / Vacío | Sin Clasificación / Desconocido | **99 (Excluido)** |
+
+```{r}
+# Procesar el string para crear un data frame
+Ocupaciones_raw = 
+     "0   - Student
+      1   - Representatives of the Legislative Power and Executive Bodies, Directors, Directors and Executive Managers
+      2   - Specialists in Intellectual and Scientific Activities
+      3   - Intermediate Level Technicians and Professions
+      4   - Administrative staff
+      5   - Personal Services, Security and Safety Workers and Sellers
+      6   - Farmers and Skilled Workers in Agriculture, Fisheries and Forestry
+      7   - Skilled Workers in Industry, Construction and Craftsmen
+      8   - Installation and Machine Operators and Assembly Workers
+      9   - Unskilled Workers 
+      10  - Armed Forces Professions
+      90  - Other Situation
+      99  - (blank)
+      101 - Armed Forces Officers
+      102 - Armed Forces Sergeants
+      103 - Other Armed Forces personnel
+      112 - Directors of administrative and commercial services
+      114 - Hotel, catering, trade and other services directors
+      121 - Specialists in the physical sciences, mathematics, engineering and related techniques
+      122 - Health professionals
+      123 - Teachers
+      124 - Specialists in finance, accounting, administrative organization, public and commercial relations
+      125 - Specialists in information and communication technologies (ICT)
+      131 - Intermediate level science and engineering technicians and professions
+      132 - Technicians and professionals, of intermediate level of health
+      134 - Intermediate level technicians from legal, social, sports, cultural and similar services
+      135 - Information and communication technology technicians
+      141 - Office workers, secretaries in general and data processing operators
+      143 - Data, accounting, statistical, financial services and registry-related operators
+      144 - Other administrative support staff 
+      151 - personal service workers
+      152 - Sellers
+      153 - Personal care workers and the like
+      154 - Protection and security services personnel
+      161 - Market-oriented farmers and skilled agricultural and animal production workers
+      163 - Farmers, livestock keepers, fishermen, hunters and gatherers, subsistence
+      171 - Skilled construction workers and the like, except electricians
+      172 - Skilled workers in metallurgy, metalworking and similar
+      173 - Skilled workers in printing, precision instrument manufacturing, jewelers, artisans and the like
+      174 - Skilled workers in electricity and electronics
+      175 - Workers in food processing, woodworking, clothing and other industries and crafts
+      181 - Fixed plant and machine operators
+      182 - Assembly workers
+      183 - Vehicle drivers and mobile equipment operators
+      191 - Cleaning workers
+      192 - Unskilled workers in agriculture, animal production, fisheries and forestry 
+      193 - Unskilled workers in extractive industry, construction, manufacturing and transport
+      194 - Meal preparation assistants
+      195 - Street vendors (except food) and street service providers"
+
+ocupaciones_lines <- unlist(strsplit(Ocupaciones_raw, "\n"))
+ocupaciones_lines <- strsplit(ocupaciones_lines, " - ")
+ocupaciones <- data.frame(t(data.frame(ocupaciones_lines)))
+colnames(ocupaciones) <- c("ID", "Ocupacion")
+rownames(ocupaciones) <- NULL
+ocupaciones$ID <- as.numeric(trimws(ocupaciones$ID))
+# Asignar niveles ocupacionales a cada código de ocupación
+ocupaciones$Nivel <- c(
+    20, 1, 2, 3, 4, 5, 6, 7, 8, 9, 
+    30, 99, 99, 30, 30, 30, 
+    1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 
+    4, 4, 4, 5, 5, 5, 5, 6, 6, 7, 7, 7, 7, 7, 
+    8, 8, 8, 9, 6, 9, 9, 5
+  )
+# Inicializar la matriz de distancias
+matriz_distancias_profesiones <- matrix(0, nrow = length(ocupaciones$ID) , ncol = length(ocupaciones$ID), dimnames = list(ocupaciones$ID, ocupaciones$ID))
+for (i in c(1:length(ocupaciones$ID))) {
+  for (j in c(1:length(ocupaciones$ID))) {
+      distancia <- abs(ocupaciones$Nivel[i] - ocupaciones$Nivel[j])
+      matriz_distancias_profesiones[i, j] <- min(distancia, 5)
+    }
+  }
+# Escalamiento multidimensional con k=3
+coordenadas_profesiones <- cmdscale(matriz_distancias_profesiones, k = 3)
+colnames(coordenadas_profesiones) <- c("Prof1", "Prof2", "Prof3")
+rownames(coordenadas_profesiones) <- ocupaciones$ID
+# Asignar las nuevas variables numéricas a las ocupaciones de los padres
+prof_madre_numeric <- coordenadas_profesiones[as.factor(data$Mother.s.occupation), ]
+colnames(prof_madre_numeric)<-c("ProfM1","ProfM2","ProfM3")
+
+prof_padre_numeric <- coordenadas_profesiones[as.factor(data$Father.s.occupation), ]
+colnames(prof_padre_numeric)<-c("ProfP1","ProfP2","ProfP3")
+```
+
+# Reducción de dimensionalidad:
+Ya hemos conseguido transformar todas las variables categóricas en numéricas. Ahora podemos crear un nuevo dataframe que contenga todas las variables numéricas para proceder a la reducción de dimensionalidad. De nuestras 36 variables originales (sin contar la objetivo) hemos descartado 9 variables:
+
+1. Nacionalidad (casi todos portugueses). Usamos simplemente la clasificación binaria internacional/no internacional.
+2. Modo de aplicación
+3. Estado civil (categorica)
+4. Grado (categorica)
+5. Cualificaciónes previas del estudiante, padre y madre (son categoricas)
+6. Ocupaciónes del padre y madre (son categoricas)
+
+Por tanto tenemos 28 variables numéricas del dataframe original. A estas hemos añadido:
+
+* 2 variables numéricas del estado civil
+* 2 variables numéricas del grado
+* 3 variables numéricas por cada cualificación previa (9 en total)
+* 3 variables numéricas por cada ocupación de los padres (6 en total)
+
+En total tenemos $27 + 2 + 2 + 9 + 6 = 46$ variables numéricas. Constriumos un dataframe con todas estas variables:
+
+```{r}
+datos_numericos<-data.frame(estados_numeric,data$Application.order,grados_numeric,data$Daytime.evening.attendance.,cualif_estudiante_numeric,data$Previous.qualification..grade.,cualif_madre_numeric,cualif_padre_numeric,prof_madre_numeric,prof_padre_numeric,data[13:36])
+
+
+rownames(datos_numericos) <- rownames(data)
+```
+
+Vamos a ver la matriz de correlaciones de las variables realacionadas con las notas y la edad:
+```{r} 
+ cor_matrix <- cor(data.frame(data$Previous.qualification..grade.,data$Admission.grade,data$Age.at.enrollment,data$Curricular.units.1st.sem..grade.,data$Curricular.units.2nd.sem..grade.))
+
+# Visualizar correlaciones
+ corrplot(cor_matrix, method = "color", type = "upper",
+          tl.col = "black", tl.srt = 45,
+          addCoef.col = "black", number.cex = 0.7)
+```
+
+Se puede ver que la nota del primer semestre están fuertemente relacionadas con las del segundo.
+
+## Análisis de componentes principales (PCA)
+
+Realizamos un análisis de componentes principales con `prcomp`. Es importante escalar los datos para que todas las variables tengan la misma importancia en el análisis.
+
+```{r}
+# PCA usando prcomp
+pca_result <- prcomp(datos_numericos, scale. = TRUE)
+
+# Resumen
+summary(pca_result)
+
+saveRDS(pca_result,file="pca_result.rds")
+# Visualizar varianza explicada
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 20),
+         main = "Varianza explicada por componente")
+#visualizar la varianza acumulada dada por data.frame(summary(pca_result)$importance[3,]
+varianza_acumulada <- data.frame(Componente = 1:length(summary(pca_result)$importance[3,]),
+                                 VarianzaAcumulada = summary(pca_result)$importance[3,])
+ggplot(varianza_acumulada, aes(x = Componente, y = VarianzaAcumulada)) +
+  geom_line(color = "red") +
+  geom_point(color = "red") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(title = "Varianza Acumulada por Componentes Principales",
+       x = "Número de Componentes",
+       y = "Varianza Acumulada") + geom_hline(yintercept = 0.8, linetype = "dashed", color = "blue") + geom_vline(xintercept = 21, linetype = "dashed", color = "green")
+
+#Para cada variable del PCA vemos las variables que contribuyen mas que un umbral (por ejempo 0.1)
+fviz_contrib(pca_result, choice = "var", axes = 1, top = 20) + ggtitle("Contribuciones de las variables al PC1")
+
+fviz_contrib(pca_result, choice = "var", axes = 2, top = 20) + ggtitle("Contribuciones de las variables al PC2")
+
+fviz_contrib(pca_result, choice = "var", axes = 3, top = 20) + ggtitle("Contribuciones de las variables al PC3")
+
+# Tomamos las dos primeras componentes principales y representamos las observaciones con colores dependiendo del valor de la variable objetivo
+pca_data <- data.frame(pca_result$x[, 1:2], Target = data$Target)
+ggplot(pca_data, aes(x = PC1, y = PC2, color = Target)) +
+  geom_point(alpha = 0.7) + 
+  labs(title = "PCA: Primeras dos Componentes Principales", x = "Componente Principal 1", y = "Componente Principal 2")+geom_vline(xintercept = -1)+geom_vline(xintercept = -5)
+
+
+```
+La línea de las gráficas de las contribuciones indica el umbral de contribución media (100% dividido por el número de variables). Las variables que superan esta línea son las que tienen una contribución significativa a la componente principal correspondiente.
+
+## Outliers con las variables del PCA
+
+Vemos que la primera componentes principal permite una separación inicial aceptable de las clases. Sin embargo, tenemos una serie de datos con un *PCA1* inusualmente bajo (por debajo de -5). Veamos que ocurre:
+
+```{r}
+pca_outliers <- data[rownames(pca_data %>% filter(PC1 <= -5)),]
+
+dim(pca_outliers)
+unique(pca_outliers$Course)
+length(data[data$Course==171,1])
+table(pca_outliers$Target)
+IDS_outliers <- rownames(pca_data %>% filter(PC1 <= -5))
+unique(pca_outliers[,names(sort(abs(pca_result$rotation[,"PC1"]), decreasing =TRUE)[1:10])])
+
+```
+
+Vemos que estos datos corresponden a `r dim(pca_outliers)[1]` de los `r length(data[data$Course==171,1])` estudiantes del grado "Animation and Multimedia Design" que no tienen datos academicos propiamente dichos como asignaturas matriculadas o examenes realizados que contribuyen a la primera componenete principal. Los consideraremos outliers, al no tener datos de las variables más determinantes.
+
+# Clustering con K-means
+
+## Con las variables originales
+
+En primer lugar vamos a determinar el número óptimo de clusters utilizando el método del codo y el método de la silueta. Debemos escalar primero los datos para que todas las variables tengan el mismo peso.
+
+```{r}
+# Determinar el número óptimo de clusters
+datos_numericos_limpios<-datos_numericos[!rownames(datos_numericos) %in% IDS_outliers,]
+datos_scale_limpios<-scale(datos_numericos_limpios)
+media_limpios <- colMeans(datos_numericos_limpios)
+sd_limpios <- apply(datos_numericos_limpios, 2, sd)
+fviz_nbclust(datos_scale_limpios,kmeans,method = "wss")
+fviz_nbclust(datos_scale_limpios,kmeans,method = "silhouette")
+
+# Aplicar K-means con el número óptimo de clusters (por ejemplo, 3)
+kmeans_result <- kmeans(datos_scale_limpios[], centers = 3, nstart = 30)
+data_cluster <- data.frame(pca_result$x[pca_result$x[,1]>=-5,1:2]) %>% mutate(cluster=factor(kmeans_result$cluster))
+data_sample <- data_cluster %>% group_by(cluster)%>% slice_sample(n=30,replace=FALSE) %>% ungroup()
+sampled_cluster_object <- list(
+  data = data_sample[, 1:2],    # Select only the features (the original data columns)
+  cluster = data_sample$cluster # Select the cluster assignments for the sample
+)
+fviz_cluster(
+  object = sampled_cluster_object,
+  data = sampled_data[, 1:2], # Pass the original features of the sampled data
+  geom = "point",             # Plot points (you can add "text" if needed)
+  ellipse.type = "convex",      # Adds a normal distribution ellipse
+  main = paste("fviz_cluster Plot - Sampled (n =", 20 , "per cluster)")
+)
+# Comparar con etiquetas reales
+tabla_comparacion <- table(Cluster = kmeans_result$cluster,objetivo=data[!rownames(data) %in% IDS_outliers,]$Target )
+tabla_comparacion<- addmargins(tabla_comparacion)[,1:4]
+tabla_comparacion[1,]<-100*tabla_comparacion[1,]/tabla_comparacion[1,4]
+tabla_comparacion[2,]<-100*tabla_comparacion[2,]/tabla_comparacion[2,4]
+tabla_comparacion[3,]<-100*tabla_comparacion[3,]/tabla_comparacion[3,4]
+tabla_comparacion[4,]<-100*tabla_comparacion[4,]/tabla_comparacion[4,4]
+print(tabla_comparacion)
+```
+
+
+```{r}
+metricas <- evaluar_clasificador_binario(
+  pred = kmeans_result$cluster,
+  real = data[!rownames(data) %in% IDS_outliers,]$Target,
+  pos_pred = c(2,3),
+  neg_pred = c(1),
+  pos_real = c("Graduate","Enrolled"),
+  neg_real = c("Dropout")
+)
+
+metricas
+```
+
+La matriz de confusión muestra que el modelo clasifica correctamente la mayoría de los positivos reales (`r metricas$matriz_confusion["Positivo","Positivo"]`), lo que se traduce en un *recall* elevado (`r metricas$metricas["recall"]`). La *precision* es igualmente alta (`r metricas$metricas["precision"]`), aunque se observa la presencia de falsos positivos (`r metricas$matriz_confusion["Negativo","Positivo"]`). El *F1-score* (`r metricas$metricas["f1_score"]`) refleja un buen equilibrio entre ambas métricas. No obstante, la capacidad para identificar correctamente la clase negativa es más limitada, como indica la *specificity* (`r metricas$metricas["specificity"]`), lo que hace que la *accuracy* global (`r metricas$metricas["accuracy"]`) sea moderada.
+
+
+# Construcción y validación de modelos
+
+Primero necesitamos preparar los datos de prueba o los nuevos para validar y usar el modelo. Necesitamos convertir las variables caregóricas en numéricas usando las mismas transformaciones que para los datos de entrenamiento, además hay que detectar si son outliers. La siguiente función toma un conjunto de datos, los convierte a numéricos y detecta y elimina los outliers avisando previamente.
+
+```{r}
+es_outlier <- function(x_new, pca_model, umbral = -5) {
+  pc1 <- predict(pca_model, newdata = x_new)[, 1]
+  return(pc1 < umbral)
+}
+
+preparar_datos_para_modelo <- function(nuevos_datos, resultado_PCA) {
+  # Convertir variables categóricas a numéricas usando las mismas transformaciones
+  estados_numeric_nuevos <- coordenadas_estados[nuevos_datos$Marital.status, ]
+  colnames(estados_numeric_nuevos) <- c("Estado1","Estado2")
+  grados_numeric_nuevos <- coordenadas_grados[as.factor(nuevos_datos$Course), ]
+  colnames(grados_numeric_nuevos)<-c("Grados1","Grados2")
+  cualif_estudiante_numeric_nuevos <- coordenadas_cualif[as.factor(nuevos_datos$Previous.qualification), ]
+  colnames(cualif_estudiante_numeric_nuevos)<-c("CualifE1","CualifE2","CualifE3")
+  cualif_padre_numeric_nuevos <- coordenadas_cualif[as.factor(nuevos_datos$Father.s.qualification), ]
+  colnames(cualif_padre_numeric_nuevos)<-c("CualifP1","CualifP2","CualifP3")
+  cualif_madre_numeric_nuevos <- coordenadas_cualif[as.factor(nuevos_datos$Mother.s.qualification), ]
+  colnames(cualif_madre_numeric_nuevos)<-c("CualifM1","CualifM2","CualifM3")
+  prof_madre_numeric_nuevos <- coordenadas_profesiones[as.factor(nuevos_datos$Mother.s.occupation), ]
+  colnames(prof_madre_numeric_nuevos)<-c("ProfM1","ProfM2","ProfM3")
+  prof_padre_numeric_nuevos <- coordenadas_profesiones[as.factor(nuevos_datos$ Father.s.occupation), ]
+  colnames(prof_padre_numeric_nuevos)<-c("ProfP1","ProfP2","ProfP3")
+  # Crear el nuevo dataframe numérico
+  datos_numericos_nuevos<-data.frame(estados_numeric_nuevos,nuevos_datos$Application.order,grados_numeric_nuevos,nuevos_datos$Daytime.evening.attendance.,cualif_estudiante_numeric_nuevos,nuevos_datos$Previous.qualification..grade.,cualif_madre_numeric_nuevos,cualif_padre_numeric_nuevos,prof_madre_numeric_nuevos,prof_padre_numeric_nuevos,nuevos_datos[13:36])
+  rownames(datos_numericos_nuevos) <- rownames(nuevos_datos)
+  colnames(datos_numericos_nuevos) <- colnames(datos_numericos)
+  
+#Detectamos los outiers con la función es_outlier y los eliminamos avisando
+  outliers_indices <- which(es_outlier(datos_numericos_nuevos, resultado_PCA))
+  if (length(outliers_indices) > 0) {
+    cat("Se han detectado", length(outliers_indices), "outliers. Serán eliminados del conjunto de datos.\n")
+    datos_numericos_nuevos <- datos_numericos_nuevos[-outliers_indices, ]
+  } else {
+    cat("No se han detectado outliers en los nuevos datos.\n")
+  }
+  return(datos_numericos_nuevos)
+}
+```
+
+Ahora podemos usar esta función para preparar los datos de validación y luego aplicar los modelos que queramos.
+
+```{r}
+# Preparar los datos de validación
+datos_numericos_validation <- preparar_datos_para_modelo(validation_data, pca_result)
+```
+
+## Validación del modelo K-means
+
+Para este modelo vamos a predecir a que cluster de los calculados anteriormente pretenecen los datos en base a la distancia con el centroide de cada cluster.
+
+```{r}
+# Calcular distancias a los centroides
+distancias_centroides <- as.matrix(dist(rbind(kmeans_result$centers, scale(datos_numericos_validation,center = media_limpios,scale = sd_limpios))))
+distancias_centroides <- distancias_centroides[-(1:nrow(kmeans_result$centers)), 1:nrow(kmeans_result$centers)]
+# Asignar clusters basándose en la distancia mínima
+predicciones_kmeans <- apply(distancias_centroides, 1, which.min)
+
+# Evaluar el modelo
+ evaluar_clasificador_binario(
+  pred = predicciones_kmeans,
+  real = validation_data[rownames(datos_numericos_validation), ]$Target,
+  pos_pred = c(1,3),
+  neg_pred = c(2),
+  pos_real = c("Graduate","Enrolled"),
+  neg_real = c("Dropout")
+)
+```
+## Knn (K nearest neighbours)
+
+Seguimos con los K vecinos más cercanos
+
+```{r}
+
+pred_knn <- knn(train = datos_scale_limpios,
+                cl  = data[!rownames(data) %in% IDS_outliers,]$Target,
+                test    = scale(datos_numericos_validation,center = media_limpios,scale = sd_limpios),
+                k = 3)
+
+evaluar_clasificador_binario(
+  pred = pred_knn,
+  real = validation_data[rownames(datos_numericos_validation), ]$Target,
+  pos_pred = c("Graduate","Enrolled"),
+  neg_pred = c("Dropout"),
+  pos_real = c("Graduate","Enrolled"),
+  neg_real = c("Dropout")
+)
+```
+## Árboles de decisión
+
+Para este modelo no necesitamos que las variables sean numéricas por lo que las podemos hacer con las originales. De cualquier modo eliminamos los outliers que había.
+
+```{r}
+X_train <- data[setdiff(rownames(data),IDS_outliers), c(1:7, 9:36)]
+y_train <- data[setdiff(rownames(data),IDS_outliers), "Target"]
+X_validation <- validation_data[rownames(datos_numericos_validation), c(1:7, 9:36)]
+y_validation <- validation_data[rownames(datos_numericos_validation), "Target"]
+# Entrenar el árbol de decisión
+arbol_modelo <- rpart(Target ~ ., data = data.frame(X_train, Target = y_train), method = "class")
+# Predecir en los datos de validación
+pred_arbol <- predict(arbol_modelo, newdata = X_validation, type = "class")
+# Evaluar el modelo
+evaluar_clasificador_binario(
+  pred = pred_arbol,
+  real = y_validation,
+  pos_pred = c("Graduate","Enrolled"),
+  neg_pred = c("Dropout"),
+  pos_real = c("Graduate","Enrolled"),
+  neg_real = c("Dropout")
+)
+
+rpart.plot(
+  arbol_modelo,
+  type = 2,
+  extra = 104,
+  fallen.leaves = TRUE
+)
+
+
+```
+El árbol de decisión identifica el número de asignaturas aprobadas en el segundo semestre como el factor determinante del abandono académico. A partir de este umbral, variables administrativas como el pago de tasas y la participación en evaluaciones refinan la clasificación. El identificador del grado (Course), aunque conceptualmente es una variable categórica, es tratado por el árbol como numérica y se utiliza en niveles más profundos para discriminar entre estudiantes que finalmente se gradúan y aquellos que permanecen matriculados. Si bien esta interpretación no es estrictamente correcta desde el punto de vista semántico, su efecto es secundario y no afecta al objetivo principal del estudio, centrado en la identificación temprana de estudiantes con riesgo de abandono.
+
+El modelo clasifica rapidamente a los estudiantes que con bastante seguridad dejen sus estudios (por tener menos de 4 asignaturas aprobadas en el segundo semestre) y a los que con seguridad se gradúen (por tener 6 o más asignaturas aprobadas). El resto de estudiantes son clasificados en función de variables administrativas que pueden ser indicativas de su compromiso académico, como el pago de tasas o la participación en evaluaciones.
+
+## Random forest
+
+```{r}
+# Entrenar el modelo Random Forest. Reutilizamos las variables X_train e y_train definidas anteriormente
+rf_modelo <- randomForest(x = X_train, y = as.factor(y_train), ntree = 100)
+# Predecir en los datos de validación
+pred_rf <- predict(rf_modelo, newdata = X_validation)
+# Evaluar el modelo
+evaluar_clasificador_binario(
+  pred = pred_rf,
+  real = y_validation,
+  pos_pred = c("Graduate","Enrolled"),
+  neg_pred = c("Dropout"),
+  pos_real = c("Graduate","Enrolled"),
+  neg_real = c("Dropout")
+)
+# Importancia de las variables (seleccionamos las 10 primeras)
+varImpPlot(rf_modelo, type = 2,n.var = 15,main = "Importancia de las Variables en Random Forest")
+```
+El análisis de la importancia de variables en el modelo de random forest confirma que el rendimiento académico es el principal factor explicativo del abandono universitario, destacando especialmente el número de asignaturas aprobadas y las calificaciones obtenidas en el segundo semestre. Variables administrativas como el pago de tasas y la participación en evaluaciones contribuyen de forma complementaria, mientras que características previas del estudiante, como la nota de acceso, la formación anterior o la edad en el momento de matrícula, presentan una influencia significativamente menor. Estos resultados refuerzan la idea de que el riesgo de abandono se manifiesta principalmente a través del desempeño académico durante el primer año.
+
+```{r}
+# Análisis del error out-of-bag
+plot(rf_modelo)
+
+legend(
+  "topright",
+  legend = c(
+    "Error global",
+    levels(as.factor(y_train))
+  ),
+  col = c("black", "red", "green", "blue"),
+  lty = 1,
+  lwd = 2,
+  bty = "n"
+)
+
+                          
+```    
+
+El análisis del error out-of-bag del modelo de random forest muestra que el clasificador identifica con alta fiabilidad tanto a los estudiantes que finalmente se gradúan como a aquellos que abandonan los estudios, que constituyen el principal objetivo del análisis. Por el contrario, la clase correspondiente a estudiantes aún matriculados presenta una mayor tasa de error, lo cual es coherente con su carácter intermedio y menos definido. Asimismo, se observa que el error del modelo se estabiliza a partir de aproximadamente 40 árboles, indicando que un mayor número de árboles no aporta mejoras significativas en el rendimiento.
+
+
+## Conclusiones
+Comparando los modelos de K-means, KNN, árbol de decisión y random forest, observamos que tanto el árbol de decisión como el random forest ofrecen un rendimiento superior en la clasificación del abandono universitario. El árbol de decisión destaca por su interpretabilidad y rapidez en la identificación de estudiantes en riesgo, basándose principalmente en el rendimiento académico del primer año. Por otro lado, el random forest proporciona una mayor robustez y precisión, aunque a costa de una menor transparencia en la toma de decisiones. Ambos modelos superan significativamente a K-means y KNN, que presentan limitaciones en la captura de las complejas interacciones entre variables. En resumen, para aplicaciones prácticas donde la interpretabilidad es clave, el árbol de decisión es preferible, mientras que para maximizar la precisión predictiva, el random forest es la mejor opción.
+
+## Simplificación del modelo random forest. 
+
+Vamos a reentrenar el random forest con solo las 11 variables más importantes ya que son las meramente académicas y por tanto más faciles de conseguir por parte de la universidad para ver si el rendimiento no empeora demasiado. Este modelo pretende que no sea necesario disponer de tantos datos para predecir el desempeño de un estudiante.
+```{r}
+# Seleccionar las 10 variables más importantes
+importancia_variables <- data.frame(importance(rf_modelo, type = 2))
+top_variables <- importancia_variables %>%
+  arrange(desc(MeanDecreaseGini)) %>%
+  slice(1:11)
+top_variables <- rownames(top_variables)
+# Reentrenar el modelo Random Forest con las 10 variables más importantes
+rf_modelo_simplificado <- randomForest(x = X_train[, top_variables], y = as.factor(y_train), ntree = 50)
+# Predecir en los datos de validación
+pred_rf_simplificado <- predict(rf_modelo_simplificado, newdata = X_validation[, top_variables])
+# Evaluar el modelo simplificado
+evaluar_clasificador_binario(
+  pred = pred_rf_simplificado,
+  real = y_validation,
+  pos_pred = c("Graduate","Enrolled"),
+  neg_pred = c("Dropout"),
+  pos_real = c("Graduate","Enrolled"),
+  neg_real = c("Dropout")
+)
+
+#Probamos el modelo a lo bruto con los outliers también
+
+
+table(validation_data[setdiff(rownames(validation_data),rownames(datos_numericos_validation)),]$Target)
+
+pred_rf_simplificado_solo_outliers <- predict(rf_modelo_simplificado, newdata = validation_data[setdiff(rownames(validation_data),rownames(datos_numericos_validation)),top_variables])
+
+
+
+#Guardamos el modelo de random forest simplificado para usarlo en la app Shiny
+saveRDS(rf_modelo_simplificado, file = "rf_modelo_simplificado.rds")
+```
+
+# Testing final
+
+A continuación se presentan el rendimiento final del modelo de random forest normal y simplificado al aplicarlo a un conjunto de datos de prueba independiente, eliminando los outliers.
+
+```{r}
+# Preparar los datos de prueba
+cols <- unlist(top_variables[c(1:5,8,11)])
+
+IDS_outliers_test<-rownames(test_data)[
+  rowSums(test_data[, cols[-length(cols)]] == 0) == length(cols)-1 &
+  test_data[, cols[length(cols)]] == 171
+]
+
+test_data_limpio <- test_data[!rownames(test_data) %in% IDS_outliers_test, ]
+#Probamos el random forest normal y medimos las metricas
+pred_rf_test <- predict(rf_modelo, newdata = test_data_limpio[, c(1:7, 9:36)])
+
+evaluar_clasificador_binario(
+    pred = pred_rf_test,
+    real = test_data_limpio$Target,
+    pos_pred = c("Graduate","Enrolled"),
+    neg_pred = c("Dropout"),
+    pos_real = c("Graduate","Enrolled"),
+    neg_real = c("Dropout")
+  )
+
+#Ahora con el random forest simplificado
+pred_rf_simplificado_test <- predict(rf_modelo_simplificado, newdata =
+  test_data_limpio[, top_variables])
+
+evaluar_clasificador_binario(
+    pred = pred_rf_simplificado_test,
+    real = test_data_limpio$Target,
+    pos_pred = c("Graduate","Enrolled"),
+    neg_pred = c("Dropout"),
+    pos_real = c("Graduate","Enrolled"),
+    neg_real = c("Dropout")
+  )
+
+```
+
+Vemos que los resultados corresponden con lo esperado y el modelo simplificado tiene un rendimiento similar al completo aportando la ventaja de necesitar menos datos para hacer la predicción. y tener menos complejidad. Ambos modelos superan claramente a los modelos de K-means y KNN probados inicialmente con una precisión del 94% y 93% en cada caso y un error del 12% y 13%. 
+
+Para mejorar estas métricas sería necesario disponer de más datos de estudiantes y de otras variables que puedan influir en el abandono como por ejemplo datos socioeconómicos o de integración social en la universidad.
+
+En el archivo [```formulario.qmd```](formulario.qmd) se presenta una aplicación Shiny que permite introducir los datos de un estudiante y predecir si abandonará o no sus estudios utilizando el modelo de random forest simplificado entrenado en este análisis.
