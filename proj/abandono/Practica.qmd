@@ -19,7 +19,7 @@ p {
 }
 ```
 
-```{r echo=FALSE
+```{r echo=FALSE}
 rm(list = ls())
 ```
 
