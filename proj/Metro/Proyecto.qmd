@@ -1,0 +1,534 @@
+---
+title: "Análisis del grafo de la red de Metro de Madrid"
+subtitle: "Grado en Matemáticas | Análisis de redes"
+author: "Alejandro García Gómez"
+date: today
+format: 
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 17
+    number-sections: true
+---
+
+```{css}
+#| echo: false
+p {
+  text-align: justify
+}
+```
+
+```{r echo = FALSE}
+rm(list = ls())
+```
+
+```{r echo = FALSE}
+colores <- c( 
+  "1"   ="#38A8E2",
+  "2"   ="#DB0B15",
+  "3"   ="#FACB4B",
+  "4"   ="#A46645",
+  "5"   ="#80B91F",
+  "6-1" ="#A29C99",
+  "6-2" ="#A29C99",
+  "6"   ="#A29C99",
+  "7"  ="#F6910A",
+  "7a"  ="#F6910A",
+  "7b"  ="#F6910A",
+  "8"   ="#E96198",
+  "9"   ="#932C7C",
+  "9A"  ="#932C7C",
+  "9B"  ="#932C7C",
+  "10"  ="#0A6EB7",
+  "10a" ="#0A6EB7",
+  "10b" ="#0A6EB7",
+  "11"  ="#135C2B",
+  "12-1"="#AEA51D",
+  "12-2"="#AEA51D",
+  "12"  ="#AEA51D",
+  "R"   ="#156CB2"
+)
+
+
+representar_grafo <- function(grafoaux){
+    datos_d3 <- igraph_to_networkD3(grafoaux, group=V(grafoaux)$linea)
+    datos_d3$nodes$name <- V(grafoaux)$label
+    
+    colores_enlaces <- sapply(1:nrow(datos_d3$links), function(i) {
+        src <- datos_d3$links$source[i] + 1  
+        tgt <- datos_d3$links$target[i] + 1
+        
+        edge_id <- get_edge_ids(grafoaux, c(src, tgt))
+        
+        E(grafoaux)$color[edge_id]
+    })
+
+    # Crear un dominio de colores basado en los grupos únicos presentes
+    grupos_presentes <- unique(datos_d3$nodes$group)
+    colores_usados <- colores[as.character(grupos_presentes)]
+
+    # Crear la escala de colores en formato JavaScript
+    ColourScale <- paste0('d3.scaleOrdinal()
+      .domain([', paste0('"', grupos_presentes, '"', collapse = ", "), '])
+      .range([', paste0('"', colores_usados, '"', collapse = ", "), '])')
+
+    repgrafo <- forceNetwork(
+        Links = datos_d3$links, 
+        Nodes = datos_d3$nodes, 
+        Source = "source", 
+        Target = "target", 
+        NodeID = "name", 
+        Group = "group",
+        opacity = 1,
+        opacityNoHover = 1,
+        fontSize = 20,
+        fontFamily = "Arial",
+        linkColour = colores_enlaces,
+        linkWidth = 3,
+        colourScale = ColourScale,
+        charge = -400,
+        zoom = TRUE
+    )
+    
+    repgrafo
+}
+```
+
+Este proyecto modeliza la red del Metro de Madrid como un grafo ponderado para estudiar su conectividad, rutas óptimas, estaciones críticas y fracturación. Se aplican algoritmos clásicos de teoría de grafos para identificar nodos estratégicos, calcular rutas óptimas entre puntos de interés y simular escenarios de fallo. Los resultados se visualizan y se interpretan en términos de planificación de infraestructura.
+
+Partimos de los datos publicados por el [consorcio regional de transportes](https://opendata.esri.es/datasets/crtm::m4-tramos-1) que recogen información sobre los tramos de cada línea.
+
+# Carga y limpieza de datos
+Estos son las librerías de R que emplearemos
+```{r message=FALSE, warning=FALSE , output=FALSE}
+library(igraph)
+library(dplyr)
+library(DT)
+library(networkD3)
+library(htmltools)
+library(knitr)
+library(ggplot2)
+library(plotly)
+library(ggdendro)
+library(dendextend)
+```
+
+Cargamos los datos
+
+```{r}
+datos <- read.csv("M4_Tramos.csv", quote="")
+d <- dim(datos)
+head(datos)
+```
+
+El dataset tiene `r d[1]` observaciones con `r d[2]` variables.  Vemos que cada parada está duplicada por cada sentido y línea por lo que será necesario ordenar los datos para poder construir nuestro grafo con la librería `igraph`
+
+## Nodos
+
+El identificador de las estaciones es la variable `CODIGOESTACION` por lo que podemos extraer la lista de todas las estaciones que serán los nodos. Las estaciones con más de una línea tienen un identificador distinto para cada linea por lo que aparecerán varias veces. Las líneas circulares y las estaciones en la que se cambia de tramo aparecen por duplicado por lo que debemos limpiarlas.
+
+```{r}
+Nodos <- unique(datos$CODIGOESTACION)
+Estaciones <- data.frame(Nodos)
+Estaciones$Nombre <- sapply(Estaciones$Nodos, function(x) {
+  unique(datos$DENOMINACION[datos$CODIGOESTACION == x])
+})
+
+remplazo <- list(
+  "6"  = c("6-1", "6-2"),
+  "9"  = c("9A", "9B"),
+  "12" = c("12-1", "12-2"),
+  "7"  = c("7a", "7b"),
+  "10" = c("10a", "10b")
+)
+
+Estaciones$Linea <- sapply(Estaciones$Nodos, function(x) {
+  a <- unique(datos$NUMEROLINEAUSUARIO[datos$CODIGOESTACION == x])
+  
+  clave <- names(remplazo)[
+    sapply(remplazo, function(v) setequal(a, v))
+  ]
+  
+  if (length(clave) == 1) clave else a
+})
+
+datatable(Estaciones , rownames=FALSE , options = list(order = list(list(0, 'asc'))))
+```
+
+## Definición de las líneas
+
+Para poder crear las aristas del grafo tenemos que definir mejor las líneas agrupando y ordenando las estaciones. Aunque el dataset recoge un trayecto distinto por sentido, a fin de simplificar el grafo, consideraremos solo uno de ellos convirtiendolo en uno no dirigido.
+
+Definimos la cabcera y término de cada una de las lineas. Esto viene indicado por la variable `TIPOPARADA` donde `C` indica cabecera y `T` indica término excepto en las líneas circulares donde esta estación es la misma y se indica con `T`. Guardamos tanto el nombre como el código de la estación.
+
+```{r}
+cabezaTermino <- data.frame(LINEA=unique(datos$NUMEROLINEAUSUARIO))
+cabezaTermino$ORIGEN <- sapply(cabezaTermino$LINEA, function(x) {
+  c(datos$DENOMINACION[datos$NUMEROLINEAUSUARIO == x & datos$TIPOPARADA=='C'],
+    datos$DENOMINACION[datos$NUMEROLINEAUSUARIO == x & datos$TIPOPARADA=='T'])[1]
+})
+cabezaTermino$DESTINO <- sapply(cabezaTermino$LINEA, function(x) {
+  datos$DENOMINACION[datos$NUMEROLINEAUSUARIO == x & datos$TIPOPARADA=='T']
+})
+cabezaTermino$CODORIGEN <- sapply(cabezaTermino$LINEA, function(x) {
+  c(datos$CODIGOESTACION[datos$NUMEROLINEAUSUARIO == x & datos$TIPOPARADA=='C'],
+    datos$CODIGOESTACION[datos$NUMEROLINEAUSUARIO == x & datos$TIPOPARADA=='T'])[1]
+})
+cabezaTermino$CODDESTINO <- sapply(cabezaTermino$LINEA, function(x) {
+  datos$CODIGOESTACION[datos$NUMEROLINEAUSUARIO == x & datos$TIPOPARADA=='T']
+})
+
+datatable(cabezaTermino, rownames=FALSE,options = list(order = list(list(0, 'asc'))))
+```
+
+Con esto ya podemos crear una lista de líneas donde cada linea es una tabla con la información relevante para el grafo. Nos quedamos solo con el sentido 1 y elegimos las variables `NUMEROORDEN`, `DENOMINACION`, `CODIGOESTACION`,`LONGITUDTRAMOANTERIOR` y `VELOCIDADTRAMOANTERIOR`. Añadimos manualmente la estación de origen como la primera y las ordenamos.
+
+```{r}
+lineas <- list()
+for (x in cabezaTermino$LINEA) {
+  nombre_linea <- as.character(x)
+  if (!(nombre_linea %in% c("12-2","6-2"))){
+    lineas[[nombre_linea]] <- datos %>%
+      filter(NUMEROLINEAUSUARIO == nombre_linea, SENTIDO == "1") %>%
+      select(NUMEROORDEN, DENOMINACION, CODIGOESTACION, LONGITUDTRAMOANTERIOR, VELOCIDADTRAMOANTERIOR) %>% mutate(TIEMPOTRAMOANTERIOR = 60*(LONGITUDTRAMOANTERIOR/(1000*VELOCIDADTRAMOANTERIOR))) %>%
+      add_row(
+        NUMEROORDEN = 1, 
+        DENOMINACION = cabezaTermino[cabezaTermino$LINEA == x, "ORIGEN"][[1]],
+        CODIGOESTACION = cabezaTermino[cabezaTermino$LINEA == x, "CODORIGEN"][[1]]
+      ) %>%
+      arrange(NUMEROORDEN)
+  }
+}
+```
+
+::: panel-tabset
+```{r}
+#| results: asis
+#| echo: false
+#| message: false
+#| warning: false
+
+for (nombre_pestaña in names(lineas[sort(names(lineas))])) {
+    cat("## ", nombre_pestaña, "\n\n")
+    tabla <- datatable(lineas[[nombre_pestaña]], rownames = FALSE,options = list(scrollX = TRUE,autoWidth = TRUE))
+    print(htmltools::tagList(tabla))
+    cat("\n\n")
+}
+```
+:::
+
+# Construcción del grafo
+
+Con los datos estructurados ya podemos crear el grafo
+
+```{r}
+grafo <- graph.empty(directed = FALSE)
+#Creamos los vértices
+grafo <- add_vertices(grafo, n = nrow(Estaciones), 
+                      name = Estaciones$Nodos,
+                      label = Estaciones$Nombre, 
+                      linea = I(Estaciones$Linea))
+
+#Añadimos línea a línea las aristas
+for (num_linea in names(lineas)) {
+  linea <- lineas[[num_linea]]
+  cat("Procesando línea", num_linea, "con", nrow(linea), "estaciones\n")
+  for (i in 1:(nrow(linea) - 1)) {
+    origen <- linea$CODIGOESTACION[i]
+    destino <- linea$CODIGOESTACION[i + 1]
+    peso <- linea$TIEMPOTRAMOANTERIOR[i + 1]
+    grafo <- add_edges(grafo, as.character(c(origen, destino)), 
+                       weight = peso, 
+                       tipo = "trayecto", 
+                       linea = num_linea, 
+                       color = colores[num_linea])
+  }
+}
+
+```
+
+Con esto tenemos un grafo donde cada componenete conexa es una linea (ya que las estaciones estaban repetidas por cada línea). Podemos representar cada linea por separado,
+
+```{r}
+comp <- components(grafo)
+cat("Número de componentes:", comp$no, "\n")
+```
+
+
+::: panel-tabset
+```{r}
+#| results: asis
+#| echo: false
+#| message: false
+
+htmltools::tagList(forceNetwork(Links = data.frame(s=0, t=0),
+                                Nodes = data.frame(n=0, g=0), 
+                                Source = "s", Target = "t", NodeID = "n", Group = "g")) %>% 
+htmltools::tagList()
+
+for (i in 1:comp$no) {
+    nodos_componente <- V(grafo)[comp$membership == i]
+    subgrafo <- induced_subgraph(grafo, nodos_componente)
+
+    cat("## ", V(subgrafo)$linea[[1]], "\n\n")
+    repgrafo <- representar_grafo(subgrafo)
+    print(htmltools::tagList(repgrafo))
+    cat("\n\n")
+}
+```
+:::
+
+## Transbordos
+
+Para los transbordos uniremos las paradas con el mismo nombre con una arista especial de tipo `transbordo`. El peso que le asignemos dependerá de cuanto queramos penalizar los transbordos. Si queremos minimizar el número de transbordos les pondremos un peso muy alto mientras que si no es relevante pondremos un peso menor. Para nuestro ejemplo vamos a suponer que todos los transbordos tienen una duración de 5 minutos.
+
+```{r}
+for (nombre in unique(Estaciones$Nombre)) {
+  nodos_mismo_nombre <- V(grafo)[V(grafo)$label == nombre]
+  if (length(nodos_mismo_nombre) > 1) {
+    for (i in 1:(length(nodos_mismo_nombre) - 1)) {
+      for (j in (i + 1):length(nodos_mismo_nombre)) {
+        grafo <- add_edges(grafo, 
+                           c(as.character(nodos_mismo_nombre[i]$name), 
+                             as.character(nodos_mismo_nombre[j]$name)), 
+                           weight = 5, 
+                           tipo = "transbordo", 
+                           color = "black")
+      }
+    }
+  }
+}
+```
+
+# Análisis del grafo
+
+## Camino mínimo entre estaciones
+
+Por ejemplo podemos calcular la ruta óptima entre dos paradas y obtener un tiempo estimado
+
+```{r}
+ruta <- shortest_paths(
+  grafo, 
+  from = as.character("305"), #La Fortuna 
+  to = as.character("46"),    #Embajadores
+  weights = E(grafo)$weight,
+  output = "both"
+)
+
+distancia <- distances(
+    grafo, 
+    as.character("305"),        #La Fortuna 
+    to = as.character("46"),    #Embajadores
+    weights = E(grafo)$weight,
+)
+# Ver los nombres de las estaciones del camino
+nombres_ruta <- V(grafo)[ruta$vpath[[1]]]$label
+
+subgrafo <- induced_subgraph(grafo, ruta$vpath[[1]])
+
+representar_grafo(subgrafo)
+```
+La ruta más rapida entre las dos estaciones es: `r unique(nombres_ruta)` con `r length(nombres_ruta)-length(unique(nombres_ruta))` transbordos y un tiempo de `r distancia` minutos.
+
+## Diámetro de la red
+
+También podemos calcular el **diametro del grafo**, es decir, las dos paradas mas alejadas de la red.
+
+```{r}
+tiempo_maximo <- diameter(grafo, directed = FALSE, weights = E(grafo)$weight)
+
+nodos_diametro <- get_diameter(grafo, directed = FALSE, weights = E(grafo)$weight)
+
+nombres_diametro <- nodos_diametro$label
+
+subgrafo <- induced_subgraph(grafo, nodos_diametro)
+
+representar_grafo(subgrafo)
+```
+El trayecto más largo de la red dura `r tiempo_maximo` minutos y es entre `r nombres_diametro[1]` y `r tail(nombres_diametro,1)`.
+
+## Medidas de centralidad
+
+Para estudiar los nodos mas importantes de nuestra red podemos aplicar diferentes medidas de centralidad. Para su implementacion seguiremos este [artículo](https://webs-deim.urv.cat/~sergio.gomez/papers/Gomez-Centrality_in_networks-Finding_the_most_important_nodes.pdf) donde se explican las diferente metricas de centralidad y la importancia de cada una de ellas.
+
+Como en este caso los transbordos no son relevantes, es necesario crear un grafo sin vértices `transbordo`, uniendo las estaciones que se llaman igual.
+
+```{r}
+grafo_sin_transbordos <- contract.vertices(grafo, factor(V(grafo)$label),
+  vertex.attr.comb= function(x) toString(unique(x))) 
+  
+grafo_sin_transbordos <- delete_edges(grafo_sin_transbordos , E(grafo_sin_transbordos)[tipo == "transbordo",])
+
+representar_grafo(grafo_sin_transbordos)
+```
+
+Ahora, con la matriz de adyacencia podemos proceder a calcular las medidas de centralidad.
+
+```{r}
+# Calcular las medidas de centralidad
+c_deg <- degree(grafo_sin_transbordos)
+c_clos <- closeness(grafo_sin_transbordos, normalized = TRUE)
+c_betw <- betweenness(grafo_sin_transbordos)
+c_eig <- eigen_centrality(grafo_sin_transbordos)$vector
+c_katz <- alpha_centrality(grafo_sin_transbordos, alpha = 0.1)
+c_pagerank <- page_rank(grafo_sin_transbordos)$vector
+
+# Construir el dataframe de resultados
+resultados_centralidad <- data.frame(
+  Nodo = V(grafo_sin_transbordos)$label,
+  Grado = c_deg,
+  Cercania = round(c_clos, 3),
+  Intermediacion = round(c_betw, 3),
+  Autovector = round(as.vector(c_eig), 3),
+  Katz = round(as.vector(c_katz), 3),
+  PageRank = round(as.vector(c_pagerank), 3)
+)
+
+
+
+datatable(resultados_centralidad)
+```
+
+### Grado
+
+Las estaciones con mayor centralidad de grado son `r rev(c(resultados_centralidad %>% arrange(Grado)  %>% select(Nodo) %>% tail(5))$Nodo)`. Este resultado es coherente con su papel como intercambiadores, ya que en ellas confluyen tres o cuatro líneas distintas, lo que incrementa notablemente su número de conexiones directas dentro de la red.
+
+Por el contrario, `r c(resultados_centralidad %>% arrange(Grado)  %>% select(Nodo) %>% head(5))$Nodo` presentan los valores más bajos de centralidad de grado entre otras. Esto se debe a que se sitúan en extremos de línea, donde únicamente están conectadas con una estación vecina, lo que limita su conectividad local dentro de la red.
+
+Esta medida nos permite clasificar las estaciones en **terminales**, **de paso** o **intercambiadores**.
+
+### Cercanía
+
+Las estaciones con mayor centralidad de cercanía son `r rev(c(resultados_centralidad %>% arrange(Cercania)  %>% select(Nodo) %>% tail(5))$Nodo)`. Estas estaciones, todas muy céntricas, se caracterizan por ocupar posiciones centrales dentro de la red, lo que les permite alcanzar al resto de estaciones mediante trayectos medios más cortos.
+
+En el extremo opuesto, `r c(resultados_centralidad %>% arrange(Cercania)  %>% select(Nodo) %>% head(5))$Nodo` presentan los valores más bajos de centralidad de cercanía. Estas estaciones se sitúan en zonas periféricas de la red, lo que implica mayores distancias al resto de estaciones y, por tanto, una menor accesibilidad global desde el punto de vista de la red.
+
+Este resultado pone de manifiesto que la centralidad de cercanía capta de forma más clara la estructura radial y centralizada del metro de Madrid, penalizando las prolongaciones hacia la periferia.
+
+### Intermediación
+
+Las estaciones con mayor centralidad de intermediación son `r rev(c(resultados_centralidad %>% arrange(Intermediacion)  %>% select(Nodo) %>% tail(5))$Nodo)`. Estas estaciones actúan como nodos de paso clave dentro de la red, apareciendo con frecuencia en los caminos más cortos que conectan pares de estaciones. Su elevada intermediación no solo se explica por el número de líneas que concentran como hemos visto en los grados, sino también por su posición como puntos de transición entre distintas zonas de la red.
+
+Por otro lado, `r c(resultados_centralidad %>% arrange(Intermediacion)  %>% select(Nodo) %>% head(5))$Nodo` presentan valores muy bajos de centralidad de intermediación. En la mayoría de los casos se trata de estaciones terminales o periféricas, que rara vez forman parte de rutas óptimas entre otros nodos. En el caso de estaciones como Chueca, su baja intermediación se debe a que se encuentran insertas en tramos lineales, donde existen alternativas equivalentes que reducen su papel como punto de paso obligado.
+
+Esta medida identifica estaciones cuya disrupción tendría un impacto estructural mayor sobre la red, ya que concentran una parte significativa de los recorridos óptimos, mientras que las estaciones con valores bajos cumplen un papel más local dentro del sistema. Con esta medida podríamos identificar estaciones de paso o **transbordo** frente a estaciones **destino**.
+
+### Autovector
+
+Las estaciones con mayor centralidad de autovector son `r rev(c(resultados_centralidad %>% arrange(Autovector)  %>% select(Nodo) %>% tail(5))$Nodo)`. Estas estaciones son todas adyacentes, lo que indica que la red posee clústeres de conectividad local muy potentes en el sur metropolitano. En este contexto, el autovector no premia el volumen de líneas que cruzan un nodo, sino la calidad de sus conexiones. Estas estaciones se benefician de estar rodeadas de vecinos que, a su vez, son fundamentales para la cohesión de tramos específicos como la Línea 12 (MetroSur) y la extensión de la Línea 3.
+
+Por el contrario, `r c(resultados_centralidad %>% arrange(Autovector)  %>% select(Nodo) %>% head(5))$Nodo` muestran valores bajos de centralidad de autovector. En estos casos, la baja puntuación se debe a que están conectadas principalmente con estaciones que también presentan baja influencia relativa dentro de la red, como ocurre en ramales periféricos o en prolongaciones hacia infraestructuras específicas como el aeropuerto.
+
+Estos resultados ponen de relieve que la centralidad de autovector puede destacar áreas cohesionadas de la red que no necesariamente coinciden con los principales intercambiadores, aportando una perspectiva complementaria a las métricas de grado, cercanía e intermediación.
+
+### Katz y Pagerank
+
+Las estaciones con mayor centralidad Katz y PageRank son, respectivamente `r rev(c(resultados_centralidad %>% arrange(Katz)  %>% select(Nodo) %>% tail(5))$Nodo)` y `r rev(c(resultados_centralidad %>% arrange(PageRank)  %>% select(Nodo) %>% tail(5))$Nodo)`. Estos algoritmos nos permiten observar la transición que veníamos viendo con la centralidad anterior desde la relevancia por proximidad estructural hacia la importancia operativa por intercambio. En el caso de la centralidad de Katz, la aparición de Villaverde Alto, El Casar y San Cristóbal junto a grandes nodos como Príncipe Pío y Avenida de América responde a la capacidad de este algoritmo para computar tanto los caminos cortos como la influencia total de los vecinos a largo alcance. Esto significa que las estaciones del sur de la red mantienen un peso elevado debido a su posición como puertas de entrada a grandes extensiones de la malla, mientras que Príncipe Pío y Avenida de América consolidan su posición como hubs de distribución masiva donde convergen múltiples ramales.
+
+Por el contrario, `r c(resultados_centralidad %>% arrange(Katz)  %>% select(Nodo) %>% head(5))$Nodo` y `r c(resultados_centralidad %>% arrange(PageRank)  %>% select(Nodo) %>% head(5))$Nodo` destacan como las estaciones con medidas más bajas. La presencia de estaciones como Pitis, Hospital del Henares, Arroyofresno o Alameda de Osuna en ambas métricas confirma su naturaleza de nodos periféricos con escasa redundancia. Al ser estaciones terminales o situarse en tramos lineales de baja densidad de transbordo, su probabilidad de ser transitadas de forma incidental es mínima. El caso de Alameda de Osuna o Las Rosas es especialmente ilustrativo, ya que, a pesar de su relevancia local para el usuario, se reduce drásticamente su centralidad cuando hablamos de modelos que priorizan la circulación continua o la redistribución de carga por toda la infraestructura.
+
+El análisis de la red de Metro de Madrid revela una dualidad estructural: mientras el grado, la cercanía y la intermediación confirman un núcleo central e intercambiador (Sol, Avenida de América, Nuevos Ministerios) que garantiza la eficiencia y accesibilidad global, las métricas de autovector, Katz y PageRank visibilizan la potencia de clústeres periféricos como los del sur metropolitano. Por otro lado, estas medidas penalizan sistemáticamente a las estaciones terminales y tramos lineales (como Alameda de Osuna o Pitis) que, por su baja redundancia, operan como destinos locales con mínima influencia en el flujo sistémico de la infraestructura.
+
+## Cluster
+
+Podemos agrupar las estaciones en comunidades con el objetivo de encontrar estaciones fuertemente conectadas o aristas críticas que unan dos comunidades. Para ello podemos emplear varios métodos de clustering como `k-means` o elaborar un dendograma. En este caso vamos a elaborar un dendograma ya que nos permite hacer clusters con una distancia intracluster específica.
+
+```{r}
+d <- distances(grafo)
+hc <- hclust(as.dist(d), method = "complete")
+grupos <- cutree(hc, h = 45)
+num_clusters <- max(grupos)
+```
+
+En este caso, hemos elaborados grupos de 45 minutos y hemos obtenido `r num_clusters` grupos distintos. Veamos cada uno de ellos:
+
+::: panel-tabset
+```{r}
+#| results: asis
+#| echo: false
+#| message: false
+htmltools::tagList(forceNetwork(Links = data.frame(s=0, t=0),
+                                Nodes = data.frame(n=0, g=0), 
+                                Source = "s", Target = "t", NodeID = "n", Group = "g")) %>% 
+htmltools::tagList()
+
+
+for(i in 1:num_clusters) {
+  nodos_cluster <- which(grupos == i)
+  subgrafo <- induced_subgraph(grafo, vids = nodos_cluster)
+  cat("## ",i, "\n\n")
+  cat("Representando Cluster N°:", i, " con ", length(nodos_cluster), " nodos.\n")
+  print(htmltools::tagList(representar_grafo(subgrafo)))
+  cat("\n\n")
+}
+```
+:::
+
+Tras algunos ajustes en favor de la claridad llegamos a esta segmentación de la red
+
+![[Mapa del suburbano](https://www.metromadrid.es/sites/default/files/planoesquematico.pdf) con las siluetas de los clusters superpuestas](cluster.jpg)
+
+El clustering muestra una estructura altamente coherente con la organización real de la red. Los ramales periféricos largos y con escasa conectividad forman clusters claramente delimitados, como en los corredores de Arganda–Rivas, Coslada–Henares o el norte de la línea 10. Este resultado confirma que el modelo captura adecuadamente las restricciones temporales impuestas por la red.
+
+Por el contrario, las zonas centrales generan clusters de gran tamaño que agrupan estaciones de múltiples líneas, con nodos como Sol, Gran Vía, Nuevos Ministerios o Atocha actuando como núcleos de accesibilidad. Esto evidencia que, desde una perspectiva temporal, el centro de Madrid constituye un espacio altamente compacto, incluso cuando las distancias geográficas son significativas.
+
+Una conclusión relevante es que la centralidad temporal no coincide necesariamente con la centralidad geográfica. Estaciones alejadas del centro urbano pueden integrarse en clusters centrales gracias a su buena conectividad y a la presencia de intercambiadores, como es el caso del sur de la línea 3.
+
+El análisis también pone de manifiesto una mayor fragmentación en el sur de la red frente a una estructura más homogénea en el norte. Esta diferencia sugiere una menor redundancia de trayectorias en el sur y una mayor dependencia de intercambiadores clave para mantener la conectividad temporal.
+
+La aparición de clusters centrales sobredimensionados es consecuencia de la alta densidad de intercambios en estas zonas, donde el clustering pierde resolución espacial. Asimismo, estaciones como Manuel Becerra o Plaza Elíptica actúan como nodos frontera entre clusters, reflejando su papel como puntos de transición dentro de la red.
+
+## Análisis de vulnerabilidad
+
+Con el objetivo de analizar la vulnerabilidad de la red, se estudia el efecto de eliminar individualmente cada estación y medir el incremento relativo del tiempo medio de viaje. La idea es identificar aquellas estaciones cuya desaparición provoca un mayor deterioro en la eficiencia global del sistema, interpretándolas como nodos críticos desde el punto de vista de la accesibilidad.
+
+```{r}
+tiempo_base <- mean_distance(
+                grafo_sin_transbordos,
+                weights = E(grafo_sin_transbordos)$weight,
+                directed = FALSE,
+                unconnected = FALSE,
+                details = FALSE
+              )
+              
+incremento <- c()
+for(i in 1 : length(V(grafo_sin_transbordos))){
+  grafo_aux <- delete_vertices(grafo_sin_transbordos, V(grafo_sin_transbordos)[i])
+  if(is_connected(grafo_aux)){
+    tiempo <- mean_distance(
+      grafo_aux,
+      weights = E(grafo_aux)$weight,
+      directed = FALSE,
+      unconnected = FALSE,
+      details = FALSE
+    )
+    if(tiempo>tiempo_base){
+      incremento[V(grafo_sin_transbordos)$label[i]]=round(100*(tiempo-tiempo_base)/tiempo_base,2)
+    }
+  }
+}
+```
+
+El tiempo medio base es `r round(tiempo_base,2)` minutos. Para cada estación se ha calculado el incremento porcentual del tiempo medio tras su eliminación, considerando únicamente los casos en los que la red permanece conexa y en los que el tiempo medio aumenta respecto al valor base.
+
+```{r echo=FALSE}
+datatable(data.frame(incremento) %>% arrange(desc(incremento)))
+```
+
+Los resultados muestran que las estaciones con mayor impacto no coinciden necesariamente con las más céntricas o conocidas, sino con nodos que articulan corredores completos o conectan grandes áreas periféricas. Destacan especialmente estaciones como Legazpi, Casa de Campo, Almendrales o Colonia Jardín, cuya eliminación incrementa el tiempo medio de viaje en más de un 7 %. Estas estaciones actúan como puntos de paso obligados entre el resto de la red y Metrosur, por lo que su pérdida genera desvíos largos y menos eficientes.
+
+También aparecen con valores elevados estaciones asociadas a grandes infraestructuras o intercambiadores del sur y oeste metropolitano, como Príncipe Pío o Puerta del Sur. Esto refuerza la idea de que la vulnerabilidad temporal está fuertemente relacionada con la estructura radial de la red y con la dependencia de ciertos ejes para mantener trayectos competitivos.
+
+En contraste, estaciones del centro histórico como Sol, Gran Vía o Plaza de España presentan incrementos relativamente moderados. Aunque son nodos muy transitados, la alta densidad de conexiones alternativas en el centro permite absorber mejor la eliminación de una estación sin que el tiempo medio global se dispare. 
+
+# Conclusiones
+
+El modelado del Metro de Madrid como un grafo ponderado ha permitido extraer conclusiones relevantes sobre su estructura y funcionamiento más allá de una mera representación topológica. Las distintas métricas de centralidad ponen de manifiesto una red fuertemente jerarquizada, con un núcleo central muy redundante y eficiente frente a corredores periféricos más frágiles y dependientes de nodos concretos. 
+
+El análisis de clustering confirma esta dualidad, mostrando una compacidad temporal elevada en el centro y una mayor fragmentación en la periferia, especialmente en el sur metropolitano. Finalmente, el estudio de vulnerabilidad revela que la importancia de una estación no se mide únicamente por su notoriedad o volumen de tráfico, sino por su papel estructural en la conectividad global, identificando nodos cuya eliminación compromete seriamente la eficiencia del sistema. 
+
+En conjunto, este trabajo demuestra cómo las herramientas de análisis de redes permiten comprender y evaluar infraestructuras reales desde una perspectiva cuantitativa, aportando criterios objetivos útiles para la planificación, el mantenimiento y la toma de decisiones estratégicas.
+
+Como posibles líneas de trabajo futuro, este análisis podría ampliarse incorporando información dinámica sobre la demanda, como flujos reales de viajeros por franja horaria, lo que permitiría estudiar la congestión y la robustez de la red en condiciones de carga realista. Asimismo, resultaría interesante introducir pesos dependientes del tiempo (frecuencias, tiempos de espera o incidencias) para aproximar el modelo a la experiencia real del usuario.
+
+Desde el punto de vista metodológico, podrían explorarse modelos de fallos simultáneos para evaluar escenarios de disrupción más complejos, así como técnicas de optimización para proponer refuerzos de la red o nuevas conexiones que minimicen la vulnerabilidad detectada. Por último, la comparación con otras redes de metro mediante métricas normalizadas permitiría contextualizar el desempeño del Metro de Madrid dentro de un marco más amplio de infraestructuras urbanas.
