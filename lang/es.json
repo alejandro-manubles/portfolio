@@ -21,7 +21,7 @@
         "2": "R",
         "3": "Java",
         "4": "Matlab",
-        "5": "Oprimización y estadística"
+        "5": "SQL"
     }
   },
   "projects": {
@@ -33,7 +33,7 @@
     },
     "metro": {
       "title": "Análisis de la red de Metro de Madrid",
-      "tags": "Análisis de redes · R",
+      "tags": "Análisis de redes · SQL y R",
       "desc": "Modelización del Metro de Madrid para estudiar su conectividad, estaciones críticas, rutas óptimas y fracturación mediante teoría de grafos y análisis de redes."
     }
   },

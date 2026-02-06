@@ -21,7 +21,7 @@
         "2": "R",
         "3": "Java",
         "4": "Matlab",
-        "5": "Optimisation and Statistics"
+        "5": "SQL"
     }
   },
   "projects": {
@@ -33,7 +33,7 @@
     },
     "metro": {
       "title": "Madrid Metro network analysis",
-      "tags": "Network analysis · R",
+      "tags": "Network analysis · SQL and R",
       "desc": "Modelling of the Madrid Metro system to study connectivity, critical stations, optimal routes and network fragmentation using graph theory and network analysis."
     }
   },
