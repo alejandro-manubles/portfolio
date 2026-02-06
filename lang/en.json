@@ -1,0 +1,44 @@
+{
+  "nav": {
+    "home": "Home",
+    "about": "About me",
+    "projects": "Projects",
+    "contact": "Contact"
+  },
+  "hero": {
+    "greeting": "Hi, I'm",
+    "subtitle": "BSc in Mathematics · Programming · Data Analysis",
+    "projects": "View projects",
+    "contact": "Contact"
+  },
+  "about": {
+    "title": "About me",
+    "paragraph1": "Mathematics graduate with a strong background in programming, data analysis and optimisation. I am particularly interested in applying mathematical methods to real-world problems, as well as in the development of algorithms and computational models.",
+    "paragraph2": "During my degree, I have worked with Python, R, Java and MATLAB in academic contexts related to data mining, numerical analysis and graph theory.",
+    "cv": "Download CV",
+    "skills":{
+        "1": "Python",
+        "2": "R",
+        "3": "Java",
+        "4": "Matlab",
+        "5": "Optimisation and Statistics"
+    }
+  },
+  "projects": {
+    "title": "Academic projects",
+    "dropout": {
+      "title": "Student dropout prediction",
+      "tags": "Data mining · R",
+      "desc": "Exploratory data analysis and development of a predictive model aimed at identifying patterns and risk factors associated with student dropout."
+    },
+    "metro": {
+      "title": "Madrid Metro network analysis",
+      "tags": "Network analysis · R",
+      "desc": "Modelling of the Madrid Metro system to study connectivity, critical stations, optimal routes and network fragmentation using graph theory and network analysis."
+    }
+  },
+  "contact": {
+    "title": "Contact",
+    "text": "If you are interested in my profile or would like to discuss a project, feel free to get in touch."
+  }
+}

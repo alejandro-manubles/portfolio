@@ -1,0 +1,44 @@
+{
+  "nav": {
+    "home": "Inicio",
+    "about": "Sobre mí",
+    "projects": "Proyectos",
+    "contact": "Contacto"
+  },
+  "hero": {
+    "greeting": "Hola, soy",
+    "subtitle": "Graduado en Matemáticas · Programación · Análisis de Datos",
+    "projects": "Ver proyectos",
+    "contact": "Contacto"
+  },
+  "about": {
+    "title": "Sobre mí",
+    "paragraph1": "Graduado en Matemáticas con formación en programación, análisis de datos y optimización. Me interesa especialmente la aplicación de métodos matemáticos a problemas reales, así como el desarrollo de algoritmos y modelos computacionales.",
+    "paragraph2": "Durante el grado he trabajado con Python, R, Java y MATLAB en contextos académicos relacionados con minería de datos, análisis numérico y teoría de grafos.",
+    "cv": "Descargar CV",
+    "skills":{
+        "1": "Python",
+        "2": "R",
+        "3": "Java",
+        "4": "Matlab",
+        "5": "Oprimización y estadística"
+    }
+  },
+  "projects": {
+    "title": "Proyectos académicos",
+    "dropout": {
+      "title": "Predicción de abandono estudiantil",
+      "tags": "Minería de datos · R",
+      "desc": "Análisis exploratorio de datos y construcción de un modelo predictivo orientado a la identificación de patrones y factores de riesgo de abandono estudiantil."
+    },
+    "metro": {
+      "title": "Análisis de la red de Metro de Madrid",
+      "tags": "Análisis de redes · R",
+      "desc": "Modelización del Metro de Madrid para estudiar su conectividad, estaciones críticas, rutas óptimas y fracturación mediante teoría de grafos y análisis de redes."
+    }
+  },
+  "contact": {
+    "title": "Contacto",
+    "text": "Si te interesa mi perfil o quieres comentar algún proyecto, puedes escribirme."
+  }
+}
