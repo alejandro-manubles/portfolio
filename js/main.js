@@ -1,12 +1,10 @@
 "use strict";
-import form from "./form.js";
 import skillbar from "./skillbar.js";
 
 document.addEventListener("DOMContentLoaded", () => {
   AOS.init({
     once: true,
   });
-  form();
   skillbar();
 
   const nav = document.querySelector("#nav");

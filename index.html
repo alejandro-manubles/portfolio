@@ -12,6 +12,53 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css"
       crossorigin="anonymous"
     />
+    <style>
+      /* Language Toggle Styles */
+      .lang-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        padding-left: 20px;
+      }
+
+      .lang-btn {
+        background: none;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        color: #fff;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .lang-btn:hover {
+        border-color: rgba(255, 255, 255, 0.6);
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .lang-btn.active {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: #fff;
+      }
+
+      @media (max-width: 768px) {
+        .lang-toggle {
+          position: absolute;
+          top: 20px;
+          right: 70px;
+        }
+        
+        .lang-btn {
+          padding: 4px 8px;
+          font-size: 12px;
+        }
+      }
+    </style>
   </head>
 
   <body>
@@ -21,11 +68,15 @@
           <a href="#home" class="logo">A. García</a>
           <nav id="nav" class="nav">
             <ul class="nav-list">
-              <li class="nav-item"><a href="#home" class="nav-link active">Inicio</a></li>
-              <li class="nav-item"><a href="#about" class="nav-link">Sobre mí</a></li>
-              <li class="nav-item"><a href="#projects" class="nav-link">Proyectos</a></li>
-              <li class="nav-item"><a href="#contact" class="nav-link">Contacto</a></li>
+              <li class="nav-item"><a href="#home" class="nav-link active" data-i18n="nav.home">Inicio</a></li>
+              <li class="nav-item"><a href="#about" class="nav-link" data-i18n="nav.about">Sobre mí</a></li>
+              <li class="nav-item"><a href="#projects" class="nav-link" data-i18n="nav.projects">Proyectos</a></li>
+              <li class="nav-item"><a href="#contact" class="nav-link" data-i18n="nav.contact">Contacto</a></li>
             </ul>
+            <div class="lang-toggle">
+              <button class="lang-btn active" data-lang="es">ES</button>
+              <button class="lang-btn" data-lang="en">EN</button>
+            </div>
             <button id="nav-btn" class="nav-btn">
               <img id="nav-btn-img" src="img/icons/open.svg" alt="Menú" />
             </button>
@@ -38,9 +89,9 @@
       <div class="container container-lg">
         <div class="hero-row">
           <div class="hero-content">
-            <span class="hero-greeting">Hola, soy</span>
+            <span class="hero-greeting" data-i18n="hero.greeting">Hola, soy</span>
             <h1 class="hero-heading">Alejandro García Gómez</h1>
-            <span class="hero-heading-subtitle">Graduado en Matemáticas · Programación · Análisis de Datos</span>
+            <span class="hero-heading-subtitle" data-i18n="hero.subtitle">Graduado en Matemáticas · Programación · Análisis de Datos</span>
 
             <div class="about-social-list">
               <div class="social-links-row">
@@ -50,8 +101,8 @@
             </div>
 
             <div>
-              <a href="#projects" class="btn">Ver proyectos</a>
-              <a href="#contact" class="btn btn-white">Contacto</a>
+              <a href="#projects" class="btn" data-i18n="hero.viewProjects">Ver proyectos</a>
+              <a href="#contact" class="btn btn-white" data-i18n="hero.contact">Contacto</a>
             </div>
           </div>
 <!--          <div class="hero-img">
@@ -63,28 +114,28 @@
 
     <section id="about" class="about">
       <div class="container">
-        <div class="about-title"><h2 class="title">Sobre mí</h2></div>
+        <div class="about-title"><h2 class="title" data-i18n="about.title">Sobre mí</h2></div>
         <div class="about-row">
           <div class="about-content">
             <p class="about-descr">
-              Graduado en Matemáticas con formación en programación, análisis de datos y optimización.
+              <span data-i18n="about.paragraph1">Graduado en Matemáticas con formación en programación, análisis de datos y optimización.
               Me interesa especialmente la aplicación de métodos matemáticos a problemas reales,
-              así como el desarrollo de algoritmos y modelos computacionales.
+              así como el desarrollo de algoritmos y modelos computacionales.</span>
               <br /><br />
-              Durante el grado he trabajado con Python, R, Java y MATLAB en contextos académicos
-              relacionados con minería de datos, análisis numérico y teoría de grafos.
+              <span data-i18n="about.paragraph2">Durante el grado he trabajado con Python, R, Java y MATLAB en contextos académicos
+              relacionados con minería de datos, análisis numérico y teoría de grafos.</span>
             </p>
             <div class="about-download-btn">
-              <a href="cv/ES_CV_Alejandro_García.pdf" class="btn btn-white" target="_blank">Descargar CV</a>
+              <a href="cv/ES_CV_Alejandro_García.pdf" id="cv-link" class="btn btn-white" target="_blank" data-i18n="about.downloadCV">Descargar CV</a>
             </div>
           </div>
 
           <div class="about-skills">
-            <div class="skill"><div class="skill-title">Python</div>
-            <div class="skill"><div class="skill-title">R</div>
-            <div class="skill"><div class="skill-title">Java</div>
-            <div class="skill"><div class="skill-title">MATLAB</div>
-            <div class="skill"><div class="skill-title">Optimización y Estadística</div>
+            <div class="skill"><div class="skill-title">Python</div></div>
+            <div class="skill"><div class="skill-title">R</div></div>
+            <div class="skill"><div class="skill-title">Java</div></div>
+            <div class="skill"><div class="skill-title">MATLAB</div></div>
+            <div class="skill"><div class="skill-title" data-i18n="about.skills.optimization">Optimización y Estadística</div></div>
           </div>
         </div>
       </div>
@@ -92,7 +143,7 @@
 
     <section id="projects" class="projects">
       <div class="container container-lg">
-        <div class="projects-title"><h2 class="title">Proyectos académicos</h2></div>
+        <div class="projects-title"><h2 class="title" data-i18n="projects.title">Proyectos académicos</h2></div>
 
         <div class="projects-row">
           <div class="project-box">
@@ -100,9 +151,9 @@
               <img class="project-img" src="proj/abandono/abandono.png" alt="Análisis de abandono estudiantil" />
               <div class="project-mask">
                 <div class="project-caption">
-                  <h5 class="white">Predicción de abandono estudiantil</h5>
-                  <p class="white">Minería de datos · R</p>
-                  <p class="white" style="padding-top:10pt;text-align: justify;"> Análisis exploratorio de datos y construcción de un modelo predictivo orientado a la identificación de patrones y factores de riesgo de abandono estudiantil.</p>
+                  <h5 class="white" data-i18n="projects.dropout.title">Predicción de abandono estudiantil</h5>
+                  <p class="white" data-i18n="projects.dropout.tech">Minería de datos · R</p>
+                  <p class="white" style="padding-top:10pt;text-align: justify;" data-i18n="projects.dropout.description">Análisis exploratorio de datos y construcción de un modelo predictivo orientado a la identificación de patrones y factores de riesgo de abandono estudiantil.</p>
                 </div>
               </div>
             </a>
@@ -113,9 +164,9 @@
               <img class="project-img" src="proj/Metro/metro.jpg" alt="Análisis del grafo de la red de Metro de Madrid" />
               <div class="project-mask">
                 <div class="project-caption">
-                  <h5 class="white">Análisis de la red de Metro de Madrid</h5>
-                  <p class="white">Análisis de redes · R</p>
-                  <p class="white" style="padding-top:10pt;text-align: justify;"> Modelización del Metro de Madrid para estudiar su conectividad, estaciones críticas, rutas óptimas y fracturación mediante teoría de grafos y análisis de redes.</p>                  
+                  <h5 class="white" data-i18n="projects.metro.title">Análisis de la red de Metro de Madrid</h5>
+                  <p class="white" data-i18n="projects.metro.tech">Análisis de redes · R</p>
+                  <p class="white" style="padding-top:10pt;text-align: justify;" data-i18n="projects.metro.description">Modelización del Metro de Madrid para estudiar su conectividad, estaciones críticas, rutas óptimas y fracturación mediante teoría de grafos y análisis de redes.</p>                  
                 </div>
               </div>
             </a>
@@ -126,22 +177,23 @@
 
     <section id="contact" class="contact">
       <div class="container">
-        <div class="contact-title"><h2 class="title">Contacto</h2></div>
+        <div class="contact-title"><h2 class="title" data-i18n="contact.title">Contacto</h2></div>
         <div class="contact-content">
-          <p>Si te interesa mi perfil o quieres comentar algún proyecto, puedes escribirme.</p>
+          <p data-i18n="contact.description">Si te interesa mi perfil o quieres comentar algún proyecto, puedes escribirme.</p>
           <p class="contact-email">
-            Email: <a href="mailto:alejandro.manubles@gmail.com"> alejandro.manubles@gmail.com </a>
+            <span data-i18n="contact.email">Email:</span> <a href="mailto:alejandro.manubles@gmail.com">alejandro.manubles@gmail.com</a>
           </p>
         </div>
+      </div>
+    </section>
 
     <footer class="footer">
       <div class="container">
         <div class="footer-row">
           <div class="social-links-row footer-social">
-            <a href="https://github.com/" target="_blank"><img src="img/social_icons/github.svg" alt="GitHub" /></a>
+            <a href="https://github.com/alejandro-manubles" target="_blank"><img src="img/social_icons/github.svg" alt="GitHub" /></a>
             <a href="https://www.linkedin.com/in/alejandro-garcía-gómez-144171295" target="_blank"><img src="img/social_icons/linkedin.svg" alt="LinkedIn" /></a>
-            <p class="footer-email"> <a href="mailto:alejandro.manubles@gmail.com"> alejandro.manubles@gmail.com </a></p>
-
+            <p class="footer-email"> <a href="mailto:alejandro.manubles@gmail.com">alejandro.manubles@gmail.com</a></p>
           </div>
           <div class="footer-copyright">
             <p>&copy; 2026 Alejandro García Gómez</p>
@@ -156,5 +208,6 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script>
     <script type="module" src="js/main.js"></script>
+    <script src="js/i18n.js"></script>
   </body>
 </html>
