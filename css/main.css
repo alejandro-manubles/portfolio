@@ -329,8 +329,9 @@ h5 {
   transition: width 1.5s ease-in-out; /* Smooth transition for the fill */
 }
 
-.about-download-btn {
+.cv-btn {
   margin-top: 40px;
+  width: 100px;
 }
 
 .services-row {
@@ -668,4 +669,35 @@ h5 {
   80% {
     top: 0;
   }
+}
+
+.lang-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 20px;
+  font-size: 14px;
+}
+
+.lang-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  font-weight: 500;
+  padding: 2px 4px;
+  transition: color 0.2s ease;
+}
+
+.lang-btn:hover {
+  color: #000;
+}
+
+.lang-btn.active {
+  color: #000;
+  font-weight: 700;
+}
+
+.lang-sep {
+  color: #bbb;
 }

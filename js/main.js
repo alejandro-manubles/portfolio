@@ -1,11 +1,9 @@
 "use strict";
-import skillbar from "./skillbar.js";
 
 document.addEventListener("DOMContentLoaded", () => {
   AOS.init({
     once: true,
   });
-  skillbar();
 
   const nav = document.querySelector("#nav");
   const navBtn = document.querySelector("#nav-btn");
