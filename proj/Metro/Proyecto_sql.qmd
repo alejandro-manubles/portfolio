@@ -121,8 +121,8 @@ Cargamos los datos en una tabla SQL para poder hacer consultas
 
 ```{r}
 con <- dbConnect(SQLite(), "metro.sqlite")
-datos <- read.csv("M4_Tramos.csv", quote="")
-dbWriteTable(con, "M4_TRAMOS", datos, overwrite = TRUE)
+data <- read.csv("M4_Tramos.csv", quote="")
+dbWriteTable(con, "M4_TRAMOS", data, overwrite = TRUE)
 
 filas <- dbGetQuery(con,"SELECT COUNT(OBJECTID) FROM M4_TRAMOS")
 vars <- length(unlist(dbGetQuery(con, "pragma table_xinfo(M4_TRAMOS);")["cid"]))
@@ -205,7 +205,7 @@ ORDER BY
 ```
 
 ```{r echo=FALSE, message=FALSE, output=FALSE}
-dbExecute(con, "CREATE VIEW cabezaTermino AS SELECT DISTINCT O.NUMEROLINEAUSUARIO AS LINEA, O.DENOMINACION AS ORIGEN,D.DENOMINACION AS DESTINO, O.CODIGOESTACION AS CODORIGEN, D.CODIGOESTACION AS CODDESTINO FROM M4_TRAMOS AS O RIGHT JOIN M4_TRAMOS AS D ON O.NUMEROLINEAUSUARIO=D.NUMEROLINEAUSUARIO WHERE (O.TIPOPARADA='C' OR (LINEA IN ('12-1','12-2','6-1','6-2') AND O.TIPOPARADA='T')) AND D.TIPOPARADA='T' ORDER BY LINEA;")
+dbExecute(con, "CREATE VIEW cabezaTermino AS SELECT DISTINCT O.NUMEROLINEAUSUARIO AS LINEA, O.DENOMINACION AS ORIGEN,D.DENOMINACION AS DESTINO, O.CODIGOESTACION AS CODORIGEN, D.CODIGOESTACION AS CODDESTINO FROM M4_TRAMOS AS O JOIN M4_TRAMOS AS D ON O.NUMEROLINEAUSUARIO=D.NUMEROLINEAUSUARIO WHERE (O.TIPOPARADA='C' OR (LINEA IN ('12-1','12-2','6-1','6-2') AND O.TIPOPARADA='T')) AND D.TIPOPARADA='T' ORDER BY LINEA;")
 cabezaTermino <- dbGetQuery(con,"SELECT * FROM cabezaTermino")
 ```
 
@@ -217,6 +217,7 @@ datatable(cabezaTermino, rownames=FALSE,options = list(order = list(list(0, 'asc
 Con esto ya podemos crear una lista de líneas donde cada linea es una tabla con la información relevante para el grafo. Nos quedamos solo con el sentido 1 y elegimos las variables `NUMEROORDEN`, `DENOMINACION`, `CODIGOESTACION`,`LONGITUDTRAMOANTERIOR` y `VELOCIDADTRAMOANTERIOR`. Añadimos manualmente la estación de origen como la primera y las ordenamos. Para ello empleamos la siguiente consulta donde `?` es el numero de cada una de las lineas.
 
 ```{SQL eval=FALSE,filename="SQL"}
+CREATE VIEW VISTA_LINEA_X
 SELECT
     NUMEROORDEN,
     DENOMINACION,
@@ -226,7 +227,7 @@ SELECT
     60 * (LONGITUDTRAMOANTERIOR / (1000 * VELOCIDADTRAMOANTERIOR)) AS TIEMPOTRAMOANTERIOR
 FROM M4_TRAMOS
 WHERE
-    NUMEROLINEAUSUARIO = ?
+    NUMEROLINEAUSUARIO = X
     AND SENTIDO = '1'
 
 UNION
@@ -240,23 +241,53 @@ SELECT
     null                    AS TIEMPOTRAMOANTERIOR
 FROM cabezaTermino
 WHERE
-    LINEA = ?
+    LINEA = x
 
 ORDER BY
     NUMEROORDEN
 
 ```
 
-```{r echo=FALSE}
-SQL= "SELECT NUMEROORDEN,DENOMINACION,CODIGOESTACION,LONGITUDTRAMOANTERIOR,VELOCIDADTRAMOANTERIOR, 60*(LONGITUDTRAMOANTERIOR/(1000*VELOCIDADTRAMOANTERIOR)) AS TIEMPOTRAMOANTERIOR FROM M4_TRAMOS WHERE NUMEROLINEAUSUARIO=? AND SENTIDO='1' UNION SELECT 1 AS NUMEROORDEN, ORIGEN AS DENOMINACION, CODORIGEN AS CODIGOESTACION, null AS LONGITUDTRAMOANTERIOR, null AS VELOCIDADTRAMOANTERIOR, null AS TIEMPOTRAMOANTERIOR FROM cabezaTermino WHERE LINEA=? ORDER BY NUMEROORDEN;"
+Podemos generar las consultas automáticas para cada línea 
+
+```{SQL eval=FALSE,filename="SQL"}
+SELECT 
+    'CREATE OR REPLACE VIEW VISTA_LINEA_' || LINEA || ' AS ' ||
+    'SELECT NUMEROORDEN, DENOMINACION, CODIGOESTACION, LONGITUDTRAMOANTERIOR, VELOCIDADTRAMOANTERIOR, ' ||
+    '60 * (LONGITUDTRAMOANTERIOR / (1000 * VELOCIDADTRAMOANTERIOR)) AS TIEMPOTRAMOANTERIOR ' ||
+    'FROM M4_TRAMOS WHERE NUMEROLINEAUSUARIO = ''' || LINEA || ''' AND SENTIDO = ''1'' ' ||
+    'UNION ' ||
+    'SELECT 1, ORIGEN, CODORIGEN, NULL, NULL, NULL ' ||
+    'FROM cabezaTermino WHERE LINEA = ''' || LINEA || ''' ' ||
+    'ORDER BY NUMEROORDEN;' 
+AS script_vistas
+FROM cabezaTermino;
 ```
 
-```{r}
+
+
+```{r echo=FALSE}
+queries <- dbGetQuery(con,"SELECT 
+    'CREATE VIEW VISTA_LINEA_' || REPLACE(LINEA, '-', '_') || ' AS ' ||
+    'SELECT NUMEROORDEN, DENOMINACION, CODIGOESTACION, LONGITUDTRAMOANTERIOR, VELOCIDADTRAMOANTERIOR, ' ||
+    '60 * (LONGITUDTRAMOANTERIOR / (1000 * VELOCIDADTRAMOANTERIOR)) AS TIEMPOTRAMOANTERIOR ' ||
+    'FROM M4_TRAMOS WHERE NUMEROLINEAUSUARIO = ''' || LINEA || ''' AND SENTIDO = ''1'' ' ||
+    'UNION ' ||
+    'SELECT 1, ORIGEN, CODORIGEN, NULL, NULL, NULL ' ||
+    'FROM cabezaTermino WHERE LINEA = ''' || LINEA || ''' ' ||
+    'ORDER BY NUMEROORDEN;' 
+AS script_vistas
+FROM cabezaTermino;")
+
+for(query in unlist(queries)){
+  dbExecute(con, toString(query))
+}
+
 lineas <- list()
 for (x in cabezaTermino$LINEA) {
   nombre_linea <- as.character(x)
   if (!(nombre_linea %in% c("12-2","6-2"))){
-    lineas[[nombre_linea]] <- dbGetQuery(con,SQL,params = c(nombre_linea,nombre_linea))
+    lineas[[nombre_linea]] <- dbGetQuery(con,paste0("SELECT * FROM VISTA_LINEA_",str_replace(nombre_linea,"-","_")))
   }
 }
 ```
