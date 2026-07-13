@@ -35,7 +35,12 @@
       "title": "Madrid Metro network analysis",
       "tags": "Network analysis · SQL and R",
       "desc": "Modelling of the Madrid Metro system to study connectivity, critical stations, optimal routes and network fragmentation using graph theory and network analysis."
-    }
+    },
+    "TFG": {
+      "title": "Random Walkers on Complex Networks: Mathematical Models and Applications",
+      "tags": "Complex Network Analysis · Graph Theory · Random Walks",
+      "desc": "Analysis of the behavior and convergence of random walks on graphs modeled as Markov chains, using spectral analysis of the transition matrix to determine their fundamental properties and temporal magnitudes."
+}
   },
   "contact": {
     "title": "Contact",

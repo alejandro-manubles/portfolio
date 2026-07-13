@@ -35,7 +35,12 @@
       "title": "Análisis de la red de Metro de Madrid",
       "tags": "Análisis de redes · SQL y R",
       "desc": "Modelización del Metro de Madrid para estudiar su conectividad, estaciones críticas, rutas óptimas y fracturación mediante teoría de grafos y análisis de redes."
-    }
+    },
+      "TFG": {
+        "title": "Paseantes Aleatorios en Redes Complejas: modelos matemáticos y  aplicaciones",
+        "tags": "Análisis de Redes Complejas · Teoría de Grafos · Paseos aleatorios",
+        "desc": "Análisis del comportamiento y la convergencia de los paseos aleatorios en grafos modelados como cadenas de Markov, utilizando el análisis espectral de la matriz de transición para determinar sus propiedades y magnitudes temporales fundamentales."
+      }
   },
   "contact": {
     "title": "Contacto",
